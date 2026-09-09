@@ -1,0 +1,9 @@
+version: "3.9"
+
+services:
+  backend:
+    image: python:3.11-slim
+    working_dir: /app
+    volumes:
+      - ./:/app
+    command: ["sh", "-c", "sleep infinity"]
