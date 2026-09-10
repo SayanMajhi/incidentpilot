@@ -12,6 +12,9 @@ class SafetyPolicy:
         if action == "delete_database":
             return False
 
+        if action == "rollback_deployment":
+          return isinstance(kwargs.get("version"), str)
+
         return False
 
 

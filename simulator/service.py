@@ -14,6 +14,7 @@ HEALTHY_LATENCY_MS: int = 100
 OUTAGE_ERROR_RATE: float = 0.70
 OUTAGE_LATENCY_MS: int = 1000
 INITIAL_VERSION: str = "v41"
+BAD_DEPLOYMENT_VERSION: str = "v42"
 
 #In memory service state
 class ServiceState(BaseModel):
@@ -121,5 +122,94 @@ def simulate_recover() -> SimulationActionResponse:
     state.latency_ms = HEALTHY_LATENCY_MS
     return SimulationActionResponse(
         message="Service recovered.",
+        state=state,
+    )
+
+
+@app.post("/simulate/bad-deployment", response_model=SimulationActionResponse)
+def simulate_bad_deployment() -> SimulationActionResponse:
+    """simulate a bad deployment that ships a new, broken version.
+
+    deploys BAD_DEPLOYMENT_VERSION ("v42") as the current_version and,
+    as a direct consequence of that deployment, puts the service into
+    a "down" state with abnormal error rate and latency values. Unlike
+    simulate_outage(), this scenario ties the incident to a specific
+    version change, so a future agent can correlate the bad metrics
+    with the deployment that caused them (e.g. via
+    tools.diagnostics.get_deployment_history()).
+
+    returns:
+        SimulationActionResponse:a confirmation message describing
+        both the deployment and the resulting incident, and the
+        resulting service state.
+    """
+    state.current_version = BAD_DEPLOYMENT_VERSION
+    state.status = DOWN_STATUS
+    state.error_rate = OUTAGE_ERROR_RATE
+    state.latency_ms = OUTAGE_LATENCY_MS
+    return SimulationActionResponse(
+        message=(
+            f"Deployment of {BAD_DEPLOYMENT_VERSION} completed, but it "
+            "introduced a production incident: the service is now down "
+            "with elevated error rate and latency."
+        ),
+        state=state,
+    )
+
+
+@app.post("/simulate/rollback", response_model=SimulationActionResponse)
+def simulate_rollback(version: str) -> SimulationActionResponse:
+    """Simulate rolling back the deployed version.
+
+    This changes current_version unconditionally. Whether that change
+    also heals the service depends on why the service was unhealthy in
+    the first place, kept deterministic and tied to cause-and-effect
+    rather than "every rollback fixes everything":
+
+        - If the service is currently down BECAUSE of the tracked bad
+          deployment (current_version == BAD_DEPLOYMENT_VERSION) and
+          this call moves away from that version, the cause of the
+          incident is removed, so the service deterministically
+          recovers to its healthy baseline - mirroring how
+          simulate_bad_deployment() tied the incident to the version
+          in the first place.
+        - Otherwise (e.g. the service is unhealthy for a reason never
+          tied to the deployed version, such as simulate_outage(), or
+          this call rolls back to the same bad version), only the
+          recorded version changes. Status/error_rate/latency are left
+          untouched, so a rollback cannot be assumed to fix an
+          incident it didn't cause.
+
+    Args:
+        version: The version string to roll back to.
+
+    Returns:
+        SimulationActionResponse: a confirmation message and the
+        resulting service state.
+    """
+    incident_caused_by_current_deployment = (
+            state.current_version == BAD_DEPLOYMENT_VERSION and version != BAD_DEPLOYMENT_VERSION
+    )
+
+    state.current_version = version
+
+    if incident_caused_by_current_deployment:
+        state.status = HEALTHY_STATUS
+        state.error_rate = HEALTHY_ERROR_RATE
+        state.latency_ms = HEALTHY_LATENCY_MS
+        message = (
+            f"Rolled back to {version}. This removed the cause of the "
+            f"bad-deployment incident ({BAD_DEPLOYMENT_VERSION}), so the "
+            "service has recovered to its healthy baseline."
+        )
+    else:
+        message = (
+            f"Rolled back to {version}. This changed only the recorded "
+            "version - the service's health was not tied to the "
+            "previously deployed version, so status/metrics are unchanged."
+        )
+
+    return SimulationActionResponse(
+        message=message,
         state=state,
     )

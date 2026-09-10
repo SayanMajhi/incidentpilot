@@ -147,6 +147,65 @@ def test_query_logs_returns_independent_copies():
     assert {"timestamp": "x", "level": "DEBUG", "message": "injected"} not in fresh_logs
 
 
+def test_query_logs_healthy_state_returns_healthy_logs():
+    """query_logs() should return only healthy/INFO evidence while the
+    service is healthy, even though a bad deployment scenario exists
+    elsewhere in the simulator."""
+    logs = diagnostics.query_logs()
+
+    assert len(logs) > 0
+    assert all(entry["level"] != "ERROR" for entry in logs)
+    messages = " ".join(entry["message"] for entry in logs).lower()
+    assert "v42" not in messages
+
+
+def test_query_logs_bad_deployment_returns_deployment_evidence():
+    """query_logs() should return deployment-specific evidence once the
+    bad-deployment scenario is active."""
+    service.simulate_bad_deployment()
+
+    logs = diagnostics.query_logs()
+
+    assert len(logs) > 0
+    assert all("timestamp" in entry and "level" in entry and "message" in entry for entry in logs)
+    messages = " ".join(entry["message"] for entry in logs).lower()
+    assert "v42" in messages
+    assert "503" in messages
+    assert "error rate" in messages or "latency" in messages
+
+
+def test_query_logs_bad_deployment_contains_v42():
+    """Bad-deployment logs must explicitly reference the deployed
+    version, v42, so an agent can tie the incident to that deployment."""
+    service.simulate_bad_deployment()
+
+    logs = diagnostics.query_logs()
+    assert any("v42" in entry["message"] for entry in logs)
+
+
+def test_query_logs_bad_deployment_contains_failure_evidence():
+    """Bad-deployment logs must contain ERROR-level entries describing
+    application failures and HTTP 503s caused by the deployment."""
+    service.simulate_bad_deployment()
+
+    logs = diagnostics.query_logs()
+    error_logs = [entry for entry in logs if entry["level"] == "ERROR"]
+
+    assert len(error_logs) > 0
+    assert any("application failures" in entry["message"].lower() for entry in error_logs)
+    assert any("503" in entry["message"] for entry in error_logs)
+
+
+def test_query_logs_generic_outage_is_unaffected_by_bad_deployment_logs():
+    """A generic outage (not the bad-deployment scenario) must not be
+    mistaken for the bad deployment: it should not mention v42."""
+    service.simulate_outage()
+
+    logs = diagnostics.query_logs()
+    messages = " ".join(entry["message"] for entry in logs).lower()
+    assert "v42" not in messages
+
+
 # ---------------------------------------------------------------------------
 # get_deployment_history
 # ---------------------------------------------------------------------------

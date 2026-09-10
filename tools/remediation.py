@@ -96,11 +96,15 @@ def rollback_deployment(version: str) -> Dict[str, Union[str, bool, None]]:
     exception, so callers (including an automated agent) can inspect
     the structured result and decide how to proceed.
 
-    Rolling back only changes the deployed version - it never touches
-    service status/metrics, and its returned message never makes any
-    claim about the underlying incident. A rollback can be a common
-    way to address a bad deploy, but its actual effect must be
-    verified separately via the diagnostic tools.
+    Rolling back changes the deployed version. Whether that also
+    changes service status/metrics is determined deterministically by
+    the simulator (see `simulator.service.simulate_rollback`): moving
+    away from a version that was itself the tracked cause of an
+    incident heals the service, while rolling back during an incident
+    that was never tied to the deployed version does not. Either way,
+    this function's returned message never makes any claim about the
+    underlying incident - its actual effect must always be verified
+    separately via the diagnostic tools.
 
     Args:
         version: The version string to roll back to (e.g. "v40").
@@ -135,7 +139,7 @@ def rollback_deployment(version: str) -> Dict[str, Union[str, bool, None]]:
             "current_version": previous_version,
         }
 
-    service.state.current_version = version
+    service.simulate_rollback(version)
 
     return {
         "action": "rollback_deployment",

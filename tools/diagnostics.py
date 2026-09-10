@@ -74,6 +74,34 @@ _OUTAGE_LOG_TEMPLATE: List[Dict[str, str]] = [
     },
 ]
 
+_BAD_DEPLOYMENT_LOG_TEMPLATE: List[Dict[str, str]] = [
+    {
+        "timestamp": "2026-09-10T09:10:00Z",
+        "level": "ERROR",
+        "message": "Deployment v42 introduced application failures.",
+    },
+    {
+        "timestamp": "2026-09-10T09:10:02Z",
+        "level": "ERROR",
+        "message": "HTTP 503 responses increased after deployment v42.",
+    },
+    {
+        "timestamp": "2026-09-10T09:10:04Z",
+        "level": "WARNING",
+        "message": "Error rate exceeded threshold after deployment v42.",
+    },
+    {
+        "timestamp": "2026-09-10T09:10:06Z",
+        "level": "WARNING",
+        "message": "Latency increased after deployment v42.",
+    },
+    {
+        "timestamp": "2026-09-10T09:10:08Z",
+        "level": "ERROR",
+        "message": "Scheduled health check failed: service status is 'down'.",
+    },
+]
+
 # ---------------------------------------------------------------------------
 # Deterministic deployment history
 # ---------------------------------------------------------------------------
@@ -150,13 +178,19 @@ def query_logs() -> List[Dict[str, str]]:
     """Return a deterministic simulated log stream for the current state.
 
     The content returned depends solely on the simulator's current
-    status, with no randomness involved:
+    status (and, for the bad-deployment scenario, its current
+    version), with no randomness involved:
         - If the service is healthy, normal application logs are
           returned (successful requests, passing health checks).
-        - If the service is down, realistic error logs are returned
-          (timeouts, elevated latency/error-rate warnings, failed
-          health checks) - the kind of signal a future agent would
-          need in order to diagnose an incident.
+        - If the service is down because of the bad-deployment
+          scenario (current_version == service.BAD_DEPLOYMENT_VERSION),
+          logs are returned that explicitly tie the incident to that
+          deployment: the deployed version, HTTP 503 responses, and
+          the resulting error-rate/latency increase - the evidence a
+          future agent needs to correlate the incident with its cause.
+        - Otherwise (a generic outage not tied to a deployment),
+          realistic error logs are returned (timeouts, elevated
+          latency/error-rate warnings, failed health checks).
 
     Returns:
         list[dict]: A list of log entries, each with keys:
@@ -167,6 +201,9 @@ def query_logs() -> List[Dict[str, str]]:
     if service.state.status == "healthy":
         # Return a copy so callers can't mutate the shared template.
         return [dict(entry) for entry in _HEALTHY_LOG_TEMPLATE]
+
+    if service.state.current_version == service.BAD_DEPLOYMENT_VERSION:
+        return [dict(entry) for entry in _BAD_DEPLOYMENT_LOG_TEMPLATE]
 
     return [dict(entry) for entry in _OUTAGE_LOG_TEMPLATE]
 
