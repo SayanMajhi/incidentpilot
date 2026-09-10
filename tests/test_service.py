@@ -110,3 +110,66 @@ def test_simulate_recover_restores_healthy_state():
     assert body["status"] == "healthy"
     assert body["error_rate"] == 0.01
     assert body["latency_ms"] == 100
+
+
+def test_simulate_bad_deployment_changes_version_to_v42():
+    """POST /simulate/bad-deployment should deploy version v42."""
+    response = client.post("/simulate/bad-deployment")
+    assert response.status_code == 200
+    assert response.json()["state"]["current_version"] == "v42"
+
+    # Confirm it is reflected in /version too.
+    version_response = client.get("/version")
+    assert version_response.json() == {"current_version": "v42"}
+
+
+def test_simulate_bad_deployment_makes_service_unhealthy():
+    """POST /simulate/bad-deployment should change the service status to down."""
+    response = client.post("/simulate/bad-deployment")
+    assert response.status_code == 200
+    assert response.json()["state"]["status"] == "down"
+
+    # Confirm it is reflected in /health too.
+    health_response = client.get("/health")
+    assert health_response.json() == {"status": "down"}
+
+
+def test_simulate_bad_deployment_produces_abnormal_error_rate():
+    """POST /simulate/bad-deployment should push error_rate to 0.70."""
+    client.post("/simulate/bad-deployment")
+
+    response = client.get("/metrics")
+    body = response.json()
+    assert body["error_rate"] == 0.70
+
+
+def test_simulate_bad_deployment_produces_abnormal_latency():
+    """POST /simulate/bad-deployment should push latency_ms to 1000."""
+    client.post("/simulate/bad-deployment")
+
+    response = client.get("/metrics")
+    body = response.json()
+    assert body["latency_ms"] == 1000
+
+
+def test_existing_recovery_still_works_after_bad_deployment():
+    """POST /simulate/recover should still restore status/metrics to
+    healthy after a bad deployment, without silently reverting the
+    deployed version (recovery is not the same as a rollback)."""
+    client.post("/simulate/bad-deployment")
+    assert client.get("/health").json()["status"] == "down"
+
+    response = client.post("/simulate/recover")
+    assert response.status_code == 200
+    assert response.json()["state"]["status"] == "healthy"
+
+    metrics_response = client.get("/metrics")
+    body = metrics_response.json()
+    assert body["status"] == "healthy"
+    assert body["error_rate"] == 0.01
+    assert body["latency_ms"] == 100
+
+    # The bad version stays deployed; recovery clears the incident
+    # symptoms but does not roll back the code.
+    version_response = client.get("/version")
+    assert version_response.json() == {"current_version": "v42"}
