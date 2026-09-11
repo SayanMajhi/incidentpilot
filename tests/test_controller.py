@@ -2,7 +2,8 @@ from unittest.mock import patch
 
 import pytest
 
-from agent.controller import controller
+from agent.controller import controller, IncidentController
+from agent.decision import DecisionEngine
 from simulator import service
 from tools import remediation
 
@@ -15,7 +16,9 @@ def reset_simulator_state():
     service.simulate_recover()
     service.state.current_version = service.INITIAL_VERSION
     remediation._current_replicas = 1
+
     yield
+
     service.simulate_recover()
     service.state.current_version = service.INITIAL_VERSION
     remediation._current_replicas = 1
@@ -72,6 +75,7 @@ def test_unsafe_action_is_blocked_before_remediation_is_called():
     with patch.object(remediation, "rollback_deployment") as mock_rollback, \
             patch.object(remediation, "scale_service") as mock_scale, \
             patch.object(remediation, "restart_service") as mock_restart:
+
         result = controller.execute(decision)
 
     assert result["success"] is False
@@ -95,8 +99,11 @@ def test_valid_rollback_reaches_remediation_layer():
     }
 
     with patch.object(
-            remediation, "rollback_deployment", wraps=remediation.rollback_deployment
+            remediation,
+            "rollback_deployment",
+            wraps=remediation.rollback_deployment,
     ) as mock_rollback:
+
         result = controller.execute(decision)
 
     mock_rollback.assert_called_once_with("v41")
@@ -117,7 +124,9 @@ def test_verification_after_successful_rollback_shows_recovery():
         "reason": "Test rollback verification",
         "confidence": 0.9,
     }
+
     action_result = controller.execute(decision)
+
     assert action_result["success"] is True
 
     verification = controller.verify()
@@ -160,9 +169,11 @@ def test_action_success_does_not_imply_incident_recovery():
     }
 
     action_result = controller.execute(decision)
+
     assert action_result["success"] is True
 
     verification = controller.verify()
+
     assert verification.recovered is False
 
 
@@ -211,7 +222,7 @@ def test_run_incident_status_is_escalated_for_unknown_incident():
     """run_incident() must report "escalated" for an escalate decision,
     without attempting any remediation or verification."""
 
-    result = controller.run_incident()  # service starts healthy -> escalate
+    result = controller.run_incident()
 
     assert result["decision"]["action"] == "escalate"
     assert result["action_result"]["status"] == "escalated"
@@ -240,6 +251,7 @@ def test_run_incident_retries_with_new_decision_after_failed_verification():
         "reason": "First attempt: looks like a fix but doesn't address the root cause",
         "confidence": 0.9,
     }
+
     second_decision = {
         "action": "rollback_deployment",
         "target": "v41",
@@ -247,22 +259,31 @@ def test_run_incident_retries_with_new_decision_after_failed_verification():
         "confidence": 0.9,
     }
 
-    with patch.object(controller, "decide", side_effect=[first_decision, second_decision]):
+    with patch.object(
+            controller,
+            "decide",
+            side_effect=[first_decision, second_decision],
+    ):
         result = controller.run_incident()
 
     assert len(result["attempts"]) == 2
 
     attempt_1 = result["attempts"][0]
+
     assert attempt_1["attempt"] == 1
     assert attempt_1["decision"]["action"] == "scale_service"
+
     # The action itself "succeeded" (the scaling request was applied)...
     assert attempt_1["action_result"]["success"] is True
+
     # ...but that is not the same thing as the incident being fixed.
     assert attempt_1["verification"] is not None
     assert attempt_1["verification"].recovered is False
 
     attempt_2 = result["attempts"][1]
+
     assert attempt_2["attempt"] == 2
+
     # Attempt 2 investigated again and got a genuinely different decision.
     assert attempt_2["decision"]["action"] == "rollback_deployment"
     assert attempt_2["decision"]["target"] == "v41"
@@ -291,11 +312,17 @@ def test_run_incident_stops_after_max_attempts_without_looping_forever():
         "confidence": 0.9,
     }
 
-    with patch.object(controller, "decide", return_value=forced_decision) as mock_decide:
+    with patch.object(
+            controller,
+            "decide",
+            return_value=forced_decision,
+    ) as mock_decide:
+
         result = controller.run_incident()
 
     assert mock_decide.call_count == controller.MAX_ATTEMPTS
     assert len(result["attempts"]) == controller.MAX_ATTEMPTS
+
     for attempt in result["attempts"]:
         assert attempt["action_result"]["success"] is True
         assert attempt["verification"].recovered is False
@@ -317,10 +344,21 @@ def test_run_incident_unsafe_action_stays_blocked_across_the_loop():
         "confidence": 1.0,
     }
 
-    with patch.object(controller, "decide", return_value=unsafe_decision), \
-            patch.object(remediation, "rollback_deployment") as mock_rollback, \
-            patch.object(remediation, "scale_service") as mock_scale, \
-            patch.object(remediation, "restart_service") as mock_restart:
+    with patch.object(
+            controller,
+            "decide",
+            return_value=unsafe_decision,
+    ), patch.object(
+        remediation,
+        "rollback_deployment",
+    ) as mock_rollback, patch.object(
+        remediation,
+        "scale_service",
+    ) as mock_scale, patch.object(
+        remediation,
+        "restart_service",
+    ) as mock_restart:
+
         result = controller.run_incident()
 
     # Blocked on the very first attempt - the loop does not keep
@@ -334,3 +372,30 @@ def test_run_incident_unsafe_action_stays_blocked_across_the_loop():
     mock_rollback.assert_not_called()
     mock_scale.assert_not_called()
     mock_restart.assert_not_called()
+
+
+def test_adaptive_incident_changes_strategy_after_failed_verification():
+    """The agent must adapt after a restart fails verification:
+    first restart, then scale after new resource evidence appears."""
+
+    service.simulate_adaptive_incident()
+
+    test_controller = IncidentController(
+        use_llm=False,
+        deterministic_engine=DecisionEngine(),
+    )
+
+    result = test_controller.run_incident()
+
+    assert result["status"] == "resolved"
+    assert len(result["attempts"]) == 2
+
+    first_attempt = result["attempts"][0]
+    second_attempt = result["attempts"][1]
+
+    assert first_attempt["decision"]["action"] == "restart_service"
+    assert first_attempt["verification"].recovered is False
+
+    assert second_attempt["decision"]["action"] == "scale_service"
+    assert second_attempt["decision"]["target"] == 3
+    assert second_attempt["verification"].recovered is True

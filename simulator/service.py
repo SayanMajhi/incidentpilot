@@ -37,6 +37,51 @@ def _initial_state() -> ServiceState:
     )
 #module level mutable state,shared across all requests in this process
 state:ServiceState = _initial_state()
+# Adaptive incident state
+adaptive_incident_active = False
+adaptive_restart_attempted = False
+
+def simulate_adaptive_restart_effect() -> None:
+    """
+    Simulate the effect of a restart during the adaptive incident.
+
+    The restart action itself succeeds, but the underlying incident
+    remains unresolved. This creates a verification failure that
+    forces IncidentPilot to reconsider its diagnosis.
+    """
+    global adaptive_restart_attempted
+
+    if not adaptive_incident_active:
+        return
+
+    adaptive_restart_attempted = True
+
+    state.status = DOWN_STATUS
+    state.error_rate = OUTAGE_ERROR_RATE
+    state.latency_ms = OUTAGE_LATENCY_MS
+
+def simulate_adaptive_scale_effect() -> None:
+    """
+    Simulate the effect of scaling during the adaptive incident.
+
+    The second remediation addresses the underlying resource-related
+    failure and restores the service to its healthy baseline.
+
+    Once the incident is resolved, the adaptive scenario state is
+    cleared so it cannot affect later incidents or tests.
+    """
+    global adaptive_incident_active, adaptive_restart_attempted
+
+    if not adaptive_incident_active or not adaptive_restart_attempted:
+        return
+
+    state.status = HEALTHY_STATUS
+    state.error_rate = HEALTHY_ERROR_RATE
+    state.latency_ms = HEALTHY_LATENCY_MS
+
+    # The adaptive incident has now been resolved.
+    adaptive_incident_active = False
+    adaptive_restart_attempted = False
 # Response models
 class HealthResponse(BaseModel):
     """response model for the /health endpoint"""
@@ -156,6 +201,33 @@ def simulate_bad_deployment() -> SimulationActionResponse:
         state=state,
     )
 
+@app.post("/simulate/adaptive-incident", response_model=SimulationActionResponse)
+def simulate_adaptive_incident() -> SimulationActionResponse:
+    """
+    Start a deterministic incident designed to test agent adaptation.
+
+    The first restart attempt will appear to execute successfully,
+    but the underlying incident will remain unresolved. A later
+    remediation strategy can then resolve the incident.
+    """
+    global adaptive_incident_active, adaptive_restart_attempted
+
+    adaptive_incident_active = True
+    adaptive_restart_attempted = False
+
+    state.current_version = INITIAL_VERSION
+    state.status = DOWN_STATUS
+    state.error_rate = OUTAGE_ERROR_RATE
+    state.latency_ms = OUTAGE_LATENCY_MS
+
+    return SimulationActionResponse(
+        message=(
+            "Adaptive incident simulated. The service is unhealthy "
+            "and the first remediation attempt will not permanently "
+            "resolve the underlying incident."
+        ),
+        state=state,
+    )
 
 @app.post("/simulate/rollback", response_model=SimulationActionResponse)
 def simulate_rollback(version: str) -> SimulationActionResponse:
@@ -218,8 +290,6 @@ def simulate_rollback(version: str) -> SimulationActionResponse:
 # IncidentPilot API
 # ============================================================
 
-from agent.controller import controller
-
 
 # Stores the most recent IncidentPilot execution result.
 last_incident_result = None
@@ -234,6 +304,8 @@ def run_incident():
     passes it through the safety policy, executes it, verifies recovery,
     and adapts if necessary.
     """
+    from agent.controller import controller
+
     global last_incident_result
 
     last_incident_result = controller.run_incident()
@@ -271,7 +343,7 @@ def get_incident_timeline():
             "status": "idle",
         }
 
-    history = last_incident_result.get("history", [])
+    history = last_incident_result.get("attempts", [])
 
     timeline = []
 
