@@ -213,3 +213,106 @@ def simulate_rollback(version: str) -> SimulationActionResponse:
         message=message,
         state=state,
     )
+
+# ============================================================
+# IncidentPilot API
+# ============================================================
+
+from agent.controller import controller
+
+
+# Stores the most recent IncidentPilot execution result.
+last_incident_result = None
+
+
+@app.post("/run-incident")
+def run_incident():
+    """
+    Run IncidentPilot against the current simulated incident.
+
+    The controller investigates the service, chooses a remediation,
+    passes it through the safety policy, executes it, verifies recovery,
+    and adapts if necessary.
+    """
+    global last_incident_result
+
+    last_incident_result = controller.run_incident()
+
+    return {
+        "status": last_incident_result.get("status"),
+        "result": last_incident_result,
+    }
+
+
+@app.get("/status")
+def get_incident_status():
+    """
+    Return the current simulated service state and latest agent result.
+    """
+    return {
+        "service": {
+            "status": state.status,
+            "error_rate": state.error_rate,
+            "latency_ms": state.latency_ms,
+            "current_version": state.current_version,
+        },
+        "incident": last_incident_result,
+    }
+
+
+@app.get("/timeline")
+def get_incident_timeline():
+    """
+    Return the agent's execution history in dashboard-friendly form.
+    """
+    if not last_incident_result:
+        return {
+            "timeline": [],
+            "status": "idle",
+        }
+
+    history = last_incident_result.get("history", [])
+
+    timeline = []
+
+    for index, attempt in enumerate(history, start=1):
+        decision = attempt.get("decision", {})
+        safety = attempt.get("safety_result", {})
+        action = attempt.get("action_result", {})
+        verification = attempt.get("verification", {})
+
+        if hasattr(verification, "to_dict"):
+            verification = verification.to_dict()
+
+        timeline.append({
+            "attempt": index,
+            "decision": decision,
+            "safety": safety,
+            "action": action,
+            "verification": verification,
+        })
+
+    return {
+        "status": last_incident_result.get("status"),
+        "timeline": timeline,
+    }
+
+
+@app.post("/reset")
+def reset_incident():
+    """
+    Reset the simulated service to its initial healthy state.
+    """
+    global last_incident_result
+
+    state.status = HEALTHY_STATUS
+    state.error_rate = HEALTHY_ERROR_RATE
+    state.latency_ms = HEALTHY_LATENCY_MS
+    state.current_version = INITIAL_VERSION
+
+    last_incident_result = None
+
+    return {
+        "message": "IncidentPilot simulator reset.",
+        "state": state,
+    }

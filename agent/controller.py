@@ -1,26 +1,52 @@
+import os
+
 from agent.decision import decision_engine
+from agent.llm_decision import llm_decision_engine
 from safety.policy import policy
 from tools import diagnostics, remediation
 from verification.verifier import verifier
 
-# Maximum number of OBSERVE -> DECIDE -> SAFETY -> ACT -> VERIFY attempts
-# run_incident() will make for a single incident before giving up. This is
-# what keeps the adaptation loop from retrying forever: attempts are
-# strictly bounded, not open-ended.
+
 MAX_ATTEMPTS = 3
 
 
 class IncidentController:
 
-    # Exposed as a class attribute (not just the module constant) so a
-    # caller/test can override it per-instance if needed, while still
-    # defaulting to the module-level MAX_ATTEMPTS.
     MAX_ATTEMPTS = MAX_ATTEMPTS
 
-    def investigate(self):
-        """Collect the evidence needed to make an incident decision."""
+    def __init__(
+            self,
+            use_llm=None,
+            llm_engine=None,
+            deterministic_engine=None,
+    ):
+        if use_llm is None:
+            use_llm = os.getenv(
+                "LLM_ENABLED",
+                "true",
+            ).lower() == "true"
 
-        observations = {
+        self.use_llm = use_llm
+
+        self.llm_engine = (
+            llm_engine
+            if llm_engine is not None
+            else llm_decision_engine
+        )
+
+        self.deterministic_engine = (
+            deterministic_engine
+            if deterministic_engine is not None
+            else decision_engine
+        )
+
+    # ---------------------------------------------------------
+    # OBSERVE
+    # ---------------------------------------------------------
+
+    def investigate(self):
+
+        return {
             "metrics": diagnostics.get_metrics(),
             "health": diagnostics.check_health(),
             "logs": diagnostics.query_logs(),
@@ -28,21 +54,76 @@ class IncidentController:
             "deployment_history": diagnostics.get_deployment_history(),
         }
 
-        return observations
+    # ---------------------------------------------------------
+    # DECIDE
+    # ---------------------------------------------------------
 
     def decide(self, observations):
-        """Ask the decision engine what action should be taken."""
 
-        return decision_engine.decide(observations)
+        # LLM disabled → deterministic mode.
+        if not self.use_llm:
+
+            decision = self.deterministic_engine.decide(
+                observations
+            )
+
+            decision = dict(decision)
+            decision["source"] = "deterministic"
+
+            return decision
+
+        # -----------------------------------------------------
+        # Try Qwen first.
+        # -----------------------------------------------------
+
+        llm_decision = self.llm_engine.decide(
+            observations
+        )
+
+        # LLMDecisionEngine exposes whether the call succeeded.
+        if getattr(
+                self.llm_engine,
+                "last_status",
+                None,
+        ) == "success":
+
+            decision = dict(llm_decision)
+            decision["source"] = "llm"
+
+            return decision
+
+        # -----------------------------------------------------
+        # Qwen failed → deterministic fallback.
+        # -----------------------------------------------------
+
+        fallback = self.deterministic_engine.decide(
+            observations
+        )
+
+        fallback = dict(fallback)
+
+        fallback["source"] = "deterministic_fallback"
+
+        fallback["fallback_reason"] = getattr(
+            self.llm_engine,
+            "last_error",
+            "Unknown LLM failure",
+        )
+
+        return fallback
+
+    # ---------------------------------------------------------
+    # SAFETY + ACT
+    # ---------------------------------------------------------
 
     def execute(self, decision):
-        """Validate and execute the proposed action."""
 
         action = decision["action"]
         target = decision.get("target")
 
-        # Escalation does not require a remediation tool.
+        # Escalation is not a remediation action.
         if action == "escalate":
+
             return {
                 "action": "escalate",
                 "success": True,
@@ -50,23 +131,40 @@ class IncidentController:
                 "message": decision["reason"],
             }
 
-        # Safety check BEFORE executing anything.
+        # -----------------------------------------------------
+        # SAFETY CHECK
+        # -----------------------------------------------------
+
         if action == "rollback_deployment":
+
             allowed = policy.allows(
                 "rollback_deployment",
-                version=target
+                version=target,
             )
+
         elif action == "scale_service":
+
             allowed = policy.allows(
                 "scale_service",
-                replicas=target
+                replicas=target,
             )
+
         elif action == "restart_service":
-            allowed = policy.allows("restart_service")
+
+            allowed = policy.allows(
+                "restart_service"
+            )
+
         else:
+
             allowed = False
 
+        # -----------------------------------------------------
+        # BLOCK UNSAFE ACTION
+        # -----------------------------------------------------
+
         if not allowed:
+
             return {
                 "action": action,
                 "success": False,
@@ -74,14 +172,24 @@ class IncidentController:
                 "message": "Action blocked by safety policy.",
             }
 
-        # Execute the approved action.
+        # -----------------------------------------------------
+        # EXECUTE APPROVED ACTION
+        # -----------------------------------------------------
+
         if action == "rollback_deployment":
-            return remediation.rollback_deployment(target)
+
+            return remediation.rollback_deployment(
+                target
+            )
 
         if action == "scale_service":
-            return remediation.scale_service(target)
+
+            return remediation.scale_service(
+                target
+            )
 
         if action == "restart_service":
+
             return remediation.restart_service()
 
         return {
@@ -91,135 +199,176 @@ class IncidentController:
             "message": "Unsupported action.",
         }
 
-    def verify(self):
-        """Check whether the service is actually healthy.
+    # ---------------------------------------------------------
+    # VERIFY
+    # ---------------------------------------------------------
 
-        Always re-reads metrics from diagnostics at call time, so this
-        reflects the service's state *after* remediation ran - never
-        the stale observations collected during investigate().
-        """
+    def verify(self):
+
+        # IMPORTANT:
+        # Read fresh metrics AFTER remediation.
 
         metrics = diagnostics.get_metrics()
+
         return verifier.verify(metrics)
 
+    # ---------------------------------------------------------
+    # FULL INCIDENT LOOP
+    # ---------------------------------------------------------
+
     def run_incident(self):
-        """Run the adaptive incident-response loop, end to end:
 
-            OBSERVE -> DECIDE -> SAFETY -> ACT -> VERIFY
-                             |
-                    verification fails
-                             |
-                        OBSERVE AGAIN
-                             |
-                        NEW DECISION -> ACT -> VERIFY
-                             |
-                     ... up to MAX_ATTEMPTS ...
-
-        Each pass re-investigates from scratch (fresh observations,
-        never the previous attempt's stale data), asks the existing
-        DecisionEngine for a new decision, and runs it through the same
-        safety-check-then-execute path as a single-shot call to
-        execute(). The safety check always happens BEFORE any
-        remediation tool is invoked - a blocked action never reaches
-        tools.remediation and the loop stops immediately (no point
-        retrying a decision the policy already rejected).
-
-        A verification failure is the only thing that triggers another
-        lap of the loop. Attempts are strictly bounded by
-        self.MAX_ATTEMPTS, so the loop can never retry forever - once
-        attempts are exhausted, the run ends "unresolved" rather than
-        looping endlessly on a decision that keeps failing to fix the
-        incident.
-
-        Whether an action "succeeded" (the remediation tool executed
-        as requested) and whether the incident "recovered" (a fresh
-        verification pass says the service is actually healthy) are
-        always tracked separately per attempt - a successful action is
-        never treated as proof of recovery.
-
-        Returns:
-            dict: A structured result with keys:
-                - "attempts": list of per-attempt records, each with
-                  "attempt" (1-indexed attempt number), "observations",
-                  "decision", "safety_result", "action_result", and
-                  "verification".
-                - "observations", "decision", "action_result",
-                  "verification": the same values as the last attempt
-                  made (kept at the top level for convenience/backward
-                  compatibility with a single-attempt call site).
-                - "status": one of "resolved", "unresolved", "blocked",
-                  or "escalated".
-        """
         history = []
+
         status = "unresolved"
 
         observations = None
         decision = None
         action_result = None
         verification = None
+        previous_attempt = None
 
-        for attempt_number in range(1, self.MAX_ATTEMPTS + 1):
+        for attempt_number in range(
+                1,
+                self.MAX_ATTEMPTS + 1,
+        ):
+
+            # ================================================
+            # OBSERVE
+            # ================================================
+
             observations = self.investigate()
-            decision = self.decide(observations)
-            action_result = self.execute(decision)
+
+            # ================================================
+            # DECIDE
+            # ================================================
+
+            decision = self.decide(
+                observations
+            )
+
+            # ================================================
+            # ACT
+            # execute() performs safety check first.
+            # ================================================
+
+            action_result = self.execute(
+                decision
+            )
+
+            # ================================================
+            # ESCALATION
+            # ================================================
 
             if decision["action"] == "escalate":
-                # No remediation tool involved, so there's nothing to
-                # verify - the decision engine itself couldn't find a
-                # confident action.
-                safety_result = {"action": "escalate", "checked": False, "allowed": None}
+
+                safety_result = {
+                    "action": "escalate",
+                    "checked": False,
+                    "allowed": None,
+                }
+
                 verification = None
+
                 status = "escalated"
+
                 history.append(
                     self._record_attempt(
-                        attempt_number, observations, decision, safety_result,
-                        action_result, verification,
+                        attempt_number,
+                        observations,
+                        decision,
+                        safety_result,
+                        action_result,
+                        verification,
                     )
                 )
+
                 break
+
+            # ================================================
+            # SAFETY RESULT
+            # ================================================
 
             safety_result = {
                 "action": decision["action"],
                 "checked": True,
-                "allowed": action_result.get("status") != "blocked",
+                "allowed": (
+                        action_result.get("status")
+                        != "blocked"
+                ),
             }
 
+            # ================================================
+            # SAFETY BLOCK
+            # ================================================
+
             if action_result.get("status") == "blocked":
-                # Rejected by SafetyPolicy before remediation ran. Retrying
-                # the identical decision would just be blocked again, so
-                # stop rather than burn further attempts.
+
                 verification = None
+
                 status = "blocked"
+
                 history.append(
                     self._record_attempt(
-                        attempt_number, observations, decision, safety_result,
-                        action_result, verification,
+                        attempt_number,
+                        observations,
+                        decision,
+                        safety_result,
+                        action_result,
+                        verification,
                     )
                 )
+
                 break
 
-            # The action was allowed and reached the remediation layer.
-            # action_result["success"] only says the action itself ran -
-            # it is NOT the same thing as the incident being fixed. Only
-            # a fresh verification pass (never the observations collected
-            # before this action ran) can say that.
+            # ================================================
+            # VERIFY
+            # ================================================
+
             verification = self.verify()
+
             history.append(
                 self._record_attempt(
-                    attempt_number, observations, decision, safety_result,
-                    action_result, verification,
+                    attempt_number,
+                    observations,
+                    decision,
+                    safety_result,
+                    action_result,
+                    verification,
                 )
             )
 
+            # ================================================
+            # SUCCESS
+            # ================================================
+
             if verification.recovered:
+
                 status = "resolved"
+
                 break
 
-            # Verification failed - the loop's retry trigger. Go around
-            # again (fresh OBSERVE, new DECIDE) unless attempts are
-            # exhausted, in which case the for-loop simply ends and
-            # status stays "unresolved".
+            # ================================================
+            # ADAPT
+            # ================================================
+
             status = "unresolved"
+
+            # Next iteration performs:
+            #
+            # OBSERVE AGAIN
+            #      ↓
+            # NEW QWEN DECISION
+            #      ↓
+            # SAFETY
+            #      ↓
+            # ACT
+            #      ↓
+            # VERIFY
+
+        # ================================================
+        # FINAL RESULT
+        # ================================================
 
         return {
             "attempts": history,
@@ -230,17 +379,20 @@ class IncidentController:
             "status": status,
         }
 
+    # ---------------------------------------------------------
+    # HISTORY
+    # ---------------------------------------------------------
+
     @staticmethod
-    def _record_attempt(attempt_number, observations, decision, safety_result, action_result, verification):
-        """Build one entry of the execution history for run_incident().
+    def _record_attempt(
+            attempt_number,
+            observations,
+            decision,
+            safety_result,
+            action_result,
+            verification,
+    ):
 
-        Kept as a small dedicated helper so the shape of a history
-        entry is defined in exactly one place.
-
-        Returns:
-            dict: with keys "attempt", "observations", "decision",
-            "safety_result", "action_result", "verification".
-        """
         return {
             "attempt": attempt_number,
             "observations": observations,
