@@ -73,6 +73,10 @@ def restart_service() -> Dict[str, Union[str, bool]]:
     """
     service.simulate_recover()
 
+    if service.adaptive_incident_active:
+        service.simulate_adaptive_restart_effect()
+
+
     return {
         "action": "restart_service",
         "success": True,
@@ -196,6 +200,9 @@ def scale_service(replicas: int) -> Dict[str, Union[str, bool, int]]:
         }
 
     _current_replicas = replicas
+
+    if service.adaptive_incident_active:
+        service.simulate_adaptive_scale_effect()
 
     return {
         "action": "scale_service",

@@ -249,8 +249,46 @@ class DecisionEngine:
         deployment_history = observations.get("deployment_history", []) or []
         current_version = observations.get("current_version")
         metrics = observations.get("metrics")
+        previous_attempt = observations.get("previous_attempt")
 
         log_text = _extract_log_text(logs)
+
+        # Adaptation: if the previous remediation was verified as unsuccessful,
+        # do not blindly repeat the same action.
+        # Adaptation: if the previous remediation was verified as unsuccessful,
+        # do not blindly repeat the same action.
+        if previous_attempt:
+            previous_action = previous_attempt.get("action")
+            verification_recovered = previous_attempt.get(
+                "verification_recovered"
+            )
+
+            if verification_recovered is False:
+                if previous_action == "rollback_deployment":
+                    return {
+                        "action": "escalate",
+                        "target": None,
+                        "reason": (
+                            "The previous rollback action completed, but "
+                            "verification showed that the service remained "
+                            "unhealthy. The same remediation will not be "
+                            "repeated without new evidence."
+                        ),
+                        "confidence": _UNRESOLVED_TARGET_CONFIDENCE,
+                    }
+
+                if previous_action == "scale_service":
+                    return {
+                        "action": "escalate",
+                        "target": None,
+                        "reason": (
+                            "The previous scaling action completed, but "
+                            "verification showed that the service remained "
+                            "unhealthy. The same remediation will not be "
+                            "repeated without new evidence."
+                        ),
+                        "confidence": _UNRESOLVED_TARGET_CONFIDENCE,
+                    }
 
         # 1. Bad deployment: real evidence in the logs (and/or metrics) ties
         #    the incident to the currently deployed version.
@@ -292,7 +330,24 @@ class DecisionEngine:
                 "confidence": _MEDIUM_CONFIDENCE,
             }
 
-        # 3. Nothing recognizable - don't guess, escalate to a human.
+            # 3. Generic transient failure: restart is a safe first response.
+        # This is intentionally lower confidence than a diagnosis backed by
+        # deployment or resource evidence.
+        if any(keyword in log_text for keyword in ("timeout", "503")):
+            return {
+                "action": "restart_service",
+                "target": None,
+                "reason": (
+                    "The service is experiencing timeout/503 failures, but "
+                    "there is no deployment or resource-exhaustion evidence. "
+                    "A restart is a safe first remediation attempt."
+                ),
+                "confidence": 0.70,
+            }
+
+        # 4. Nothing recognizable - don't guess, escalate to a human.
+
+        # 5. Nothing recognizable - don't guess, escalate to a human.
         return {
             "action": "escalate",
             "target": None,

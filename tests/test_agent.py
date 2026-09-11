@@ -253,3 +253,105 @@ def test_multiple_deployments_without_evidence_does_not_trigger_rollback():
 
     assert decision["action"] == "escalate"
     assert decision["target"] is None
+
+    # ---------------------------------------------------------------------------
+# E. Adaptation after failed remediation
+# ---------------------------------------------------------------------------
+
+def test_failed_rollback_does_not_repeat_rollback():
+    """If rollback completed but verification failed, the engine must
+    adapt instead of blindly repeating the same rollback."""
+
+    observations = {
+        "logs": [
+            "Deployment v42 introduced application failures.",
+            "HTTP 503 responses increased after deployment v42.",
+        ],
+        "deployment_history": [
+            {"version": "v41"},
+            {"version": "v42"},
+        ],
+        "current_version": "v42",
+        "metrics": {
+            "error_rate": 0.70,
+            "latency_ms": 1000,
+        },
+        "previous_attempt": {
+            "action": "rollback_deployment",
+            "target": "v41",
+            "action_status": "completed",
+            "verification_recovered": False,
+            "verification_reason": "Service metrics are still unhealthy",
+        },
+    }
+
+    decision = decision_engine.decide(observations)
+
+    assert decision["action"] != "rollback_deployment"
+    assert decision["action"] == "escalate"
+    assert decision["target"] is None
+
+
+def test_failed_scaling_does_not_repeat_scaling():
+    """If scaling completed but verification failed, the engine must
+    not blindly repeat the same scaling action."""
+
+    observations = {
+        "logs": [
+            "Connection pool exhausted",
+            "Service is still returning errors",
+        ],
+        "deployment_history": [
+            {"version": "v41"},
+        ],
+        "current_version": "v41",
+        "metrics": {
+            "error_rate": 0.70,
+            "latency_ms": 1000,
+        },
+        "previous_attempt": {
+            "action": "scale_service",
+            "target": 3,
+            "action_status": "completed",
+            "verification_recovered": False,
+            "verification_reason": "Service metrics are still unhealthy",
+        },
+    }
+
+    decision = decision_engine.decide(observations)
+
+    assert decision["action"] != "scale_service"
+    assert decision["action"] == "escalate"
+    assert decision["target"] is None
+
+
+def test_successful_previous_attempt_does_not_trigger_adaptation():
+    """Adaptation should only occur when the previous attempt actually
+    failed verification."""
+
+    observations = {
+        "logs": [
+            "Application error after deployment",
+        ],
+        "deployment_history": [
+            {"version": "v41"},
+            {"version": "v42"},
+        ],
+        "current_version": "v42",
+        "metrics": {
+            "error_rate": 0.70,
+            "latency_ms": 1000,
+        },
+        "previous_attempt": {
+            "action": "rollback_deployment",
+            "target": "v41",
+            "action_status": "completed",
+            "verification_recovered": True,
+            "verification_reason": "Service metrics are healthy",
+        },
+    }
+
+    decision = decision_engine.decide(observations)
+
+    assert decision["action"] == "rollback_deployment"
+    assert decision["target"] == "v41"
