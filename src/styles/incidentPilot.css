@@ -1,0 +1,1022 @@
+/* Scoped Design Tokens & Root Container */
+
+.incidentpilot-root {
+  /* Palette based on #161e2f #242f49 #384358 #ffa586 #b51a2b #541a2e */
+  --bg: #161e2f;
+  --bg-elevated: #242f49;
+  --surface: #1d263b;
+  --surface-border: #384358;
+  --surface-hover: #2c3854;
+  --text-bright: #f8fafc;
+  --text-main: #d0d7e2;
+  --text-muted: #a4b1c6;
+  --text-faint: #6c7a92;
+
+  --peach: #ffa586;
+  --peach-surface: rgba(255, 165, 134, 0.12);
+  --peach-border: rgba(255, 165, 134, 0.35);
+
+  --crimson: #b51a2b;
+  --crimson-surface: rgba(181, 26, 43, 0.16);
+  --crimson-border: rgba(181, 26, 43, 0.4);
+
+  --burgundy: #541a2e;
+  --burgundy-surface: rgba(84, 26, 46, 0.28);
+  --burgundy-border: rgba(84, 26, 46, 0.55);
+
+  --emerald: #10b981;
+  --emerald-surface: rgba(16, 185, 129, 0.12);
+  --emerald-border: rgba(16, 185, 129, 0.35);
+
+  --amber: #f59e0b;
+  --amber-surface: rgba(245, 158, 11, 0.12);
+  --amber-border: rgba(245, 158, 11, 0.35);
+
+  --font-ui: 'Epilogue', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  /* Container styles */
+  background-color: var(--bg);
+  color: var(--text-main);
+  font-family: var(--font-ui);
+  font-size: 0.95rem;
+  line-height: 1.55;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+}
+
+.incidentpilot-root *,
+.incidentpilot-root *::before,
+.incidentpilot-root *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+.incidentpilot-root a {
+  color: var(--peach);
+  text-decoration: none;
+}
+
+.incidentpilot-root a:hover {
+  text-decoration: underline;
+}
+
+/* Top Nav and Status Bar */
+
+.incidentpilot-root header {
+  background: var(--bg-elevated);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-lg);
+  padding: 18px 24px;
+  margin-bottom: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.incidentpilot-root .brand-cluster {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.incidentpilot-root .brand-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, #b51a2b 0%, #541a2e 100%);
+  border: 1px solid var(--crimson-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-size: 1.35rem;
+  font-weight: 800;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.incidentpilot-root .brand-titles h1 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--text-bright);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.incidentpilot-root .brand-titles p {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.incidentpilot-root .backend-bridge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  padding: 6px 12px;
+}
+
+.incidentpilot-root .bridge-label {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.incidentpilot-root .bridge-input {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-bright);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  width: 210px;
+  outline: none;
+}
+
+.incidentpilot-root .bridge-input:focus {
+  border-color: var(--peach);
+  background: var(--bg-elevated);
+}
+
+.incidentpilot-root .pill-connection {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.incidentpilot-root .pill-connection.connected {
+  background: var(--emerald-surface);
+  color: var(--emerald);
+  border: 1px solid var(--emerald-border);
+}
+
+.incidentpilot-root .pill-connection.offline {
+  background: var(--crimson-surface);
+  color: #ff9da8;
+  border: 1px solid var(--crimson-border);
+}
+
+.incidentpilot-root .pill-connection.checking {
+  background: var(--amber-surface);
+  color: var(--amber);
+  border: 1px solid var(--amber-border);
+}
+
+.incidentpilot-root .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.incidentpilot-root .btn-reconnect {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 14px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-hover);
+  border: 1px solid var(--surface-border);
+  color: var(--text-bright);
+  font-family: var(--font-ui);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.incidentpilot-root .btn-reconnect:hover {
+  background: #344263;
+  border-color: var(--peach);
+}
+
+.incidentpilot-root .btn-reconnect:focus-visible {
+  outline: 2px solid var(--peach);
+  outline-offset: 2px;
+}
+
+/* Offline guidance banner */
+
+.incidentpilot-root .offline-banner {
+  display: none;
+  background: var(--burgundy-surface);
+  border: 1px solid var(--crimson-border);
+  color: #fca5a5;
+  padding: 12px 18px;
+  border-radius: var(--radius-md);
+  margin-bottom: 20px;
+  font-size: 0.88rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.incidentpilot-root .offline-banner.active {
+  display: flex;
+}
+
+.incidentpilot-root .offline-banner code {
+  background: rgba(0, 0, 0, 0.4);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: #ffffff;
+}
+
+/* Main Dashboard Layout */
+
+.incidentpilot-root .dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px;
+}
+
+/* Section A: Live Service State HUD */
+
+.incidentpilot-root .hud-panel {
+  background: var(--bg-elevated);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-lg);
+  padding: 20px 24px;
+}
+
+.incidentpilot-root .panel-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.incidentpilot-root .panel-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.incidentpilot-root .hud-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.incidentpilot-root .hud-card {
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.incidentpilot-root .hud-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.incidentpilot-root .hud-value {
+  font-size: 1.6rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--text-bright);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.incidentpilot-root .hud-subtext {
+  font-size: 0.8rem;
+  color: var(--text-faint);
+}
+
+.incidentpilot-root .status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1.15rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  width: fit-content;
+}
+
+.incidentpilot-root .status-badge.healthy {
+  background: var(--emerald-surface);
+  color: var(--emerald);
+  border: 1px solid var(--emerald-border);
+}
+
+.incidentpilot-root .status-badge.down {
+  background: var(--crimson-surface);
+  color: #ff9da8;
+  border: 1px solid var(--crimson-border);
+}
+
+.incidentpilot-root .status-badge.degraded {
+  background: var(--amber-surface);
+  color: var(--amber);
+  border: 1px solid var(--amber-border);
+}
+
+/* Section B: Control Operations and Scenarios */
+
+.incidentpilot-root .controls-panel {
+  background: var(--bg-elevated);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-lg);
+  padding: 20px 24px;
+}
+
+.incidentpilot-root .controls-split {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.incidentpilot-root .scenario-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.incidentpilot-root .btn-scenario {
+  min-height: 44px;
+  padding: 0 16px;
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  color: var(--text-bright);
+  font-family: var(--font-ui);
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.15s ease;
+}
+
+.incidentpilot-root .btn-scenario:hover {
+  background: var(--surface-hover);
+  border-color: var(--peach);
+  transform: translateY(-1px);
+}
+
+.incidentpilot-root .btn-scenario:active {
+  transform: translateY(0);
+}
+
+.incidentpilot-root .btn-scenario:focus-visible {
+  outline: 2px solid var(--peach);
+  outline-offset: 2px;
+}
+
+.incidentpilot-root .btn-scenario.adaptive-highlight {
+  background: var(--burgundy-surface);
+  border-color: var(--peach-border);
+  color: var(--peach);
+}
+
+.incidentpilot-root .btn-scenario.adaptive-highlight:hover {
+  background: rgba(84, 26, 46, 0.45);
+  border-color: var(--peach);
+  color: #ffffff;
+}
+
+.incidentpilot-root .action-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.incidentpilot-root .btn-reset {
+  min-height: 44px;
+  padding: 0 18px;
+  background: transparent;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.incidentpilot-root .btn-reset:hover {
+  background: var(--surface);
+  color: var(--text-bright);
+  border-color: var(--peach);
+}
+
+.incidentpilot-root .btn-reset:focus-visible {
+  outline: 2px solid var(--peach);
+  outline-offset: 2px;
+}
+
+.incidentpilot-root .btn-run-incident {
+  min-height: 44px;
+  padding: 0 24px;
+  background: linear-gradient(135deg, #b51a2b 0%, #541a2e 100%);
+  border: 1px solid var(--peach-border);
+  border-radius: var(--radius-md);
+  color: #ffffff;
+  font-family: var(--font-ui);
+  font-size: 0.92rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  transition: all 0.15s ease;
+}
+
+.incidentpilot-root .btn-run-incident:hover {
+  background: linear-gradient(135deg, #c72336 0%, #631e36 100%);
+  border-color: var(--peach);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.45);
+  transform: translateY(-1px);
+}
+
+.incidentpilot-root .btn-run-incident:active {
+  transform: translateY(0);
+}
+
+.incidentpilot-root .btn-run-incident:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.incidentpilot-root .btn-run-incident:focus-visible {
+  outline: 2px solid var(--peach);
+  outline-offset: 2px;
+}
+
+/* Core Insight Callout: Action Success != Incident Recovery */
+
+.incidentpilot-root .axiom-callout {
+  background: var(--burgundy-surface);
+  border: 1px solid var(--peach-border);
+  border-radius: var(--radius-md);
+  padding: 14px 20px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.incidentpilot-root .axiom-text {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.incidentpilot-root .axiom-badge {
+  background: #b51a2b;
+  color: #ffffff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  letter-spacing: 0.03em;
+}
+
+.incidentpilot-root .axiom-statement {
+  font-weight: 600;
+  color: var(--text-bright);
+  font-size: 0.92rem;
+}
+
+.incidentpilot-root .axiom-desc {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+/* Two-column layout: Centerpiece Timeline and Inspection Sidebar */
+
+.incidentpilot-root .content-split {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 24px;
+}
+
+@media (max-width: 1080px) {
+  .incidentpilot-root .content-split {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Left Column Wrapper */
+
+.incidentpilot-root .timeline-column {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Real Time Telemetry Spike Monitor Panel */
+
+.incidentpilot-root .telemetry-monitor-panel {
+  background: var(--bg-elevated);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.incidentpilot-root .monitor-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--surface-border);
+}
+
+.incidentpilot-root .monitor-header h3 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-bright);
+}
+
+.incidentpilot-root .monitor-pill {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.incidentpilot-root .monitor-pill.nominal {
+  background: var(--emerald-surface);
+  color: var(--emerald);
+  border: 1px solid var(--emerald-border);
+}
+
+.incidentpilot-root .monitor-pill.surge {
+  background: var(--crimson-surface);
+  color: #ff9da8;
+  border: 1px solid var(--crimson-border);
+}
+
+.incidentpilot-root .monitor-hud-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px;
+}
+
+.incidentpilot-root .monitor-stat-box {
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.incidentpilot-root .monitor-stat-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.incidentpilot-root .monitor-stat-value {
+  font-family: var(--font-mono);
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-bright);
+}
+
+.incidentpilot-root .monitor-canvas-box {
+  position: relative;
+  background: #0d1420;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  padding: 12px;
+}
+
+.incidentpilot-root .monitor-canvas {
+  width: 100%;
+  height: 160px;
+  display: block;
+}
+
+.incidentpilot-root .monitor-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  padding-top: 4px;
+}
+
+.incidentpilot-root .legend-items {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.incidentpilot-root .legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.incidentpilot-root .legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+/* Agent Timeline */
+
+.incidentpilot-root .timeline-panel {
+  background: var(--bg-elevated);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.incidentpilot-root .timeline-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--surface-border);
+}
+
+.incidentpilot-root .timeline-header h2 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-bright);
+}
+
+.incidentpilot-root .attempts-container {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.incidentpilot-root .attempt-card {
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  transition: border-color 0.2s ease;
+}
+
+.incidentpilot-root .attempt-card.active-attempt {
+  border-color: var(--peach);
+}
+
+.incidentpilot-root .attempt-card.resolved-attempt {
+  border-color: var(--emerald-border);
+}
+
+.incidentpilot-root .attempt-card.failed-attempt {
+  border-color: var(--amber-border);
+}
+
+.incidentpilot-root .attempt-header {
+  background: rgba(0, 0, 0, 0.25);
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--surface-border);
+}
+
+.incidentpilot-root .attempt-tag {
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text-bright);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.incidentpilot-root .attempt-status-pill {
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+}
+
+.incidentpilot-root .attempt-status-pill.success {
+  background: var(--emerald-surface);
+  color: var(--emerald);
+  border: 1px solid var(--emerald-border);
+}
+
+.incidentpilot-root .attempt-status-pill.retry {
+  background: var(--amber-surface);
+  color: var(--amber);
+  border: 1px solid var(--amber-border);
+}
+
+.incidentpilot-root .attempt-status-pill.running {
+  background: var(--burgundy-surface);
+  color: var(--peach);
+  border: 1px solid var(--peach-border);
+}
+
+.incidentpilot-root .attempt-body {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.incidentpilot-root .step-item {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  gap: 14px;
+  position: relative;
+}
+
+.incidentpilot-root .step-track {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.incidentpilot-root .step-icon-circle {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--surface-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  z-index: 2;
+}
+
+.incidentpilot-root .step-connector {
+  width: 2px;
+  flex: 1;
+  background: var(--surface-border);
+  margin: 4px 0;
+}
+
+.incidentpilot-root .step-item:last-child .step-connector {
+  display: none;
+}
+
+.incidentpilot-root .step-content {
+  padding-bottom: 12px;
+}
+
+.incidentpilot-root .step-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-bright);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.incidentpilot-root .step-details {
+  font-size: 0.85rem;
+  color: var(--text-main);
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  line-height: 1.5;
+}
+
+.incidentpilot-root .step-details.verification-failure {
+  border-color: var(--crimson-border);
+  background: var(--crimson-surface);
+  color: #ff9da8;
+}
+
+.incidentpilot-root .step-details.verification-success {
+  border-color: var(--emerald-border);
+  background: var(--emerald-surface);
+  color: #a7f3d0;
+}
+
+.incidentpilot-root .step-details.adapt-callout {
+  border-color: var(--peach-border);
+  background: var(--burgundy-surface);
+  color: var(--peach);
+  font-weight: 500;
+}
+
+/* Final Resolution Banner */
+
+.incidentpilot-root .resolution-banner {
+  display: none;
+  border-radius: var(--radius-md);
+  padding: 20px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 1.15rem;
+  letter-spacing: 0.03em;
+}
+
+.incidentpilot-root .resolution-banner.resolved {
+  display: block;
+  background: var(--emerald-surface);
+  border: 1px solid var(--emerald-border);
+  color: var(--emerald);
+}
+
+.incidentpilot-root .resolution-banner.escalated {
+  display: block;
+  background: var(--crimson-surface);
+  border: 1px solid var(--crimson-border);
+  color: #ff9da8;
+}
+
+/* Inspection Sidebar */
+
+.incidentpilot-root .inspection-column {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.incidentpilot-root .card-panel {
+  background: var(--bg-elevated);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+}
+
+.incidentpilot-root .card-panel-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.incidentpilot-root .data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.incidentpilot-root .data-table tr {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.incidentpilot-root .data-table tr:last-child {
+  border-bottom: none;
+}
+
+.incidentpilot-root .data-table td {
+  padding: 8px 4px;
+}
+
+.incidentpilot-root .data-table td.key {
+  color: var(--text-muted);
+  font-weight: 500;
+  width: 38%;
+}
+
+.incidentpilot-root .data-table td.val {
+  color: var(--text-bright);
+  font-family: var(--font-mono);
+  word-break: break-word;
+}
+
+.incidentpilot-root .source-pill {
+  font-size: 0.75rem;
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-hover);
+  border: 1px solid var(--surface-border);
+  color: var(--text-muted);
+}
+
+/* Logs Collapsible */
+
+.incidentpilot-root .logs-container {
+  background: #0d1420;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  max-height: 260px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.incidentpilot-root .log-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.incidentpilot-root .log-time {
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.incidentpilot-root .log-level {
+  font-weight: 600;
+  border-radius: 3px;
+  padding: 0 4px;
+  font-size: 0.72rem;
+}
+
+.incidentpilot-root .log-level.ERROR {
+  background: var(--crimson-surface);
+  color: #ff9da8;
+}
+
+.incidentpilot-root .log-level.WARNING {
+  background: var(--amber-surface);
+  color: var(--amber);
+}
+
+.incidentpilot-root .log-level.INFO {
+  background: var(--peach-surface);
+  color: var(--peach);
+}
+
+.incidentpilot-root .log-msg {
+  color: var(--text-main);
+  word-break: break-word;
+}
+
+/* Footer */
+
+.incidentpilot-root footer {
+  margin-top: 32px;
+  padding-top: 16px;
+  border-top: 1px solid var(--surface-border);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  gap: 12px;
+}
