@@ -18,6 +18,7 @@ interface AgentExecutionTimelineProps {
   summaryAgentStatus: string;
   selectedAttemptNumber: number | null;
   onSelectAttempt: (attempt: Attempt) => void;
+  isRunning: boolean;
 }
 
 export const AgentExecutionTimeline: React.FC<AgentExecutionTimelineProps> = ({
@@ -26,14 +27,17 @@ export const AgentExecutionTimeline: React.FC<AgentExecutionTimelineProps> = ({
   summaryAgentStatus,
   selectedAttemptNumber,
   onSelectAttempt,
+  isRunning,
 }) => {
   const isStandby = attempts.length === 0;
 
-  const timelineSummary = isStandby
+  // The live phase reported by the backend is the most accurate label while a
+  // run is in flight; otherwise fall back to the concluded/standby wording.
+  const timelineSummary = isRunning
+    ? summaryAgentStatus
+    : isStandby
     ? 'Awaiting incident execution'
-    : summaryAgentStatus === 'Resolved'
-    ? 'Incident cycle concluded'
-    : 'Autonomous loop active';
+    : 'Incident cycle concluded';
 
   return (
     <section className="timeline-panel" aria-labelledby="timeline-heading">
@@ -71,7 +75,7 @@ export const AgentExecutionTimeline: React.FC<AgentExecutionTimelineProps> = ({
                 id={attempt.id}
                 onToggle={(event) => { if (event.currentTarget.open) onSelectAttempt(attempt); }}
               >
-                <summary className="attempt-header" onClick={() => onSelectAttempt(attempt)}>
+                <summary className="attempt-header">
                   <span className="attempt-tag">{attempt.tag}</span>
                   <span className={`attempt-status-pill ${attempt.statusClass}`}>
                     {attempt.statusText}

@@ -1,8 +1,8 @@
 import pytest
 
-from agent.decision import decision_engine
-from simulator import service
-from tools import diagnostics
+from backend.agent.decision import decision_engine
+from backend.simulator import service
+from backend.tools import diagnostics
 
 
 # ---------------------------------------------------------------------------

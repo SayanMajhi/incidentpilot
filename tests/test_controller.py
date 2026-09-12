@@ -2,16 +2,16 @@ from unittest.mock import patch
 
 import pytest
 
-from agent.controller import controller, IncidentController
-from agent.decision import DecisionEngine
-from simulator import service
-from tools import remediation
+from backend.agent.controller import controller, IncidentController
+from backend.agent.decision import DecisionEngine
+from backend.simulator import service
+from backend.tools import remediation
 
 
 @pytest.fixture(autouse=True)
 def reset_simulator_state():
     """Ensure every test starts and ends on the same deterministic,
-    healthy baseline, since simulator/remediation state is shared
+    healthy baseline, since backend/simulator/remediation state is shared
     module-level state."""
     service.simulate_recover()
     service.state.current_version = service.INITIAL_VERSION

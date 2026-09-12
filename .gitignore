@@ -12,10 +12,14 @@ env/
 
 # Environment files
 .env
+.env.local
+*.local
 
-# Build artifacts
+# Node / build artifacts
+node_modules/
 dist/
 build/
+*.tsbuildinfo
 
 # Logs
 *.log

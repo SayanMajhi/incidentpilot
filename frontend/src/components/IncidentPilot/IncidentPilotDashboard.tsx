@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import '../../styles/incidentPilot.css';
 import { useIncidentPilot } from '../../hooks/useIncidentPilot';
 import { Header } from './Header';
@@ -27,6 +27,7 @@ export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
     setBackendUrl,
     connectionStatus,
     checkConnection,
+    config,
     simState,
     currentReplicas,
     lastSyncTime,
@@ -34,6 +35,7 @@ export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
     triggerScenario,
     resetSystem,
     runIncident,
+    agentPhase,
     isRunningAgent,
     runLabel,
     summary,
@@ -43,46 +45,52 @@ export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
     attempts,
     resolutionBanner,
     telemetryBuffer,
+    maxSamples,
     logs,
     operationError,
   } = useIncidentPilot(initialBaseUrl);
 
   const isOffline = connectionStatus !== 'connected';
-  const selectedAttempt = attempts.find((attempt) => attempt.number === selectedAttemptNumber) ?? attempts[attempts.length - 1];
+
+  // Drop a stale selection when a new run replaces the attempt list, so an
+  // attempt selected in a previous run cannot stay highlighted in this one.
+  const attemptCount = attempts.length;
+  useEffect(() => { setSelectedAttemptNumber(null); }, [attemptCount]);
+
+  const selectedAttempt = selectedAttemptNumber === null
+    ? attempts[attempts.length - 1]
+    : attempts.find((attempt) => attempt.number === selectedAttemptNumber) ?? attempts[attempts.length - 1];
 
   return (
     <div className="incidentpilot-root">
       {/* Top Navigation and Bridge Header */}
       <Header
         backendUrl={backendUrl}
-        onUrlChange={(newUrl) => setBackendUrl(newUrl)}
+        onUrlChange={setBackendUrl}
         connectionStatus={connectionStatus}
-        onPing={() => checkConnection(false)}
+        onPing={() => void checkConnection()}
       />
 
       {/* Offline Guidance Banner */}
       <BackendAlert
         backendUrl={backendUrl}
         isOffline={isOffline}
-        onRetry={() => checkConnection(false)}
+        onRetry={() => void checkConnection()}
       />
 
       {operationError && (
         <div className="operation-error" role="alert">
           <span><strong>Operation failed.</strong> {operationError}</span>
-          <button type="button" onClick={() => checkConnection(false)}>Retry API</button>
+          <button type="button" onClick={() => void checkConnection()}>Retry API</button>
         </div>
       )}
 
       <main className="dashboard-grid">
         <CommandBar
           activeScenario={activeScenario}
-          agentStatus={summary.agentStatus}
+          agentPhase={agentPhase}
           isRunning={isRunningAgent}
-          onRunIncident={runIncident}
-          runLabel={runLabel}
           service={simState}
-          disabled={isOffline}
         />
 
         <IncidentFocus
@@ -97,12 +105,14 @@ export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
           simState={simState}
           currentReplicas={currentReplicas}
           lastSyncTime={lastSyncTime}
+          config={config}
+          isOffline={isOffline}
         />
 
         <LifecycleStrip
           service={simState}
           attempts={attempts}
-          agentStatus={summary.agentStatus}
+          isRecovered={verification.isRecoveredBool === true}
           isRunning={isRunningAgent}
         />
 
@@ -130,9 +140,14 @@ export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
               summaryAgentStatus={summary.agentStatus}
               selectedAttemptNumber={selectedAttempt?.number ?? null}
               onSelectAttempt={(attempt) => setSelectedAttemptNumber(attempt.number)}
+              isRunning={isRunningAgent}
             />
 
-            <TelemetryMonitor telemetryBuffer={telemetryBuffer} />
+            <TelemetryMonitor
+              telemetryBuffer={telemetryBuffer}
+              maxSamples={maxSamples}
+              config={config}
+            />
           </div>
 
           {/* Right Column: Dedicated Deep-Dive Cards and Logs */}

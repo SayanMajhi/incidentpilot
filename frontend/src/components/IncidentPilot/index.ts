@@ -1,13 +1,1 @@
 export { IncidentPilotDashboard, default } from './IncidentPilotDashboard';
-export { Header } from './Header';
-export { BackendAlert } from './BackendAlert';
-export { TelemetryDashboard } from './TelemetryDashboard';
-export { ScenarioSelector } from './ScenarioSelector';
-export { CorePrincipleBanner } from './CorePrincipleBanner';
-export { AgentExecutionTimeline } from './AgentExecutionTimeline';
-export { TelemetryMonitor } from './TelemetryMonitor';
-export { InspectionSidebar } from './InspectionSidebar';
-export { Footer } from './Footer';
-export { CommandBar } from './CommandBar';
-export { IncidentFocus } from './IncidentFocus';
-export { InspectorTabs } from './InspectorTabs';

@@ -320,6 +320,10 @@ export default function LandingPage() {
               When the first fix doesn't work, IncidentPilot doesn't give up —
               it adapts, re-investigates, and tries a different approach.
             </p>
+            <p className="section-note">
+              Walkthrough of the built-in Adaptive Incident scenario. Run it on the
+              dashboard to watch the same loop against live telemetry.
+            </p>
           </div>
 
           <div className="adaptive-visual reveal">
@@ -334,11 +338,11 @@ export default function LandingPage() {
                 <div className="adaptive-attempt-card failed-card">
                   <div className="adaptive-step-row">
                     <span className="adaptive-step-marker pass">✓</span>
-                    <span>Observed: service DOWN, error rate 78%</span>
+                    <span>Observed: service DOWN, error rate 70%, latency 1000ms</span>
                   </div>
                   <div className="adaptive-step-row">
                     <span className="adaptive-step-marker pass">✓</span>
-                    <span>Decision: scale service → 4 replicas</span>
+                    <span>Decision: restart service (transient failure suspected)</span>
                   </div>
                   <div className="adaptive-step-row">
                     <span className="adaptive-step-marker pass">✓</span>
@@ -346,7 +350,7 @@ export default function LandingPage() {
                   </div>
                   <div className="adaptive-step-row">
                     <span className="adaptive-step-marker pass">✓</span>
-                    <span>Action: scaling completed successfully</span>
+                    <span>Action: restart completed successfully</span>
                   </div>
                   <div className="adaptive-step-row">
                     <span className="adaptive-step-marker fail">✕</span>
@@ -375,11 +379,11 @@ export default function LandingPage() {
                 <div className="adaptive-attempt-card success-card">
                   <div className="adaptive-step-row">
                     <span className="adaptive-step-marker pass">✓</span>
-                    <span>New evidence: NullPointerException in v41</span>
+                    <span>New evidence: resource exhaustion under sustained load</span>
                   </div>
                   <div className="adaptive-step-row">
                     <span className="adaptive-step-marker pass">✓</span>
-                    <span>Decision: rollback to v40 (confidence 91%)</span>
+                    <span>Decision: scale service → 3 replicas</span>
                   </div>
                   <div className="adaptive-step-row">
                     <span className="adaptive-step-marker pass">✓</span>
@@ -387,7 +391,7 @@ export default function LandingPage() {
                   </div>
                   <div className="adaptive-step-row">
                     <span className="adaptive-step-marker pass">✓</span>
-                    <span>Action: rollback completed</span>
+                    <span>Action: scaling completed</span>
                   </div>
                   <div className="adaptive-step-row">
                     <span className="adaptive-step-marker pass">✓</span>

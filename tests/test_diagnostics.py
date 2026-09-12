@@ -1,5 +1,5 @@
 """
-Tests for the IncidentPilot diagnostic tools in tools/diagnostics.py.
+Tests for the IncidentPilot diagnostic tools in backend/tools/diagnostics.py.
 
 These tests exercise each diagnostic function directly (no HTTP layer
 involved) against the simulator's in-memory state, in both the healthy
@@ -7,17 +7,10 @@ and outage states where applicable. Assertions check actual returned
 data/values, not just that the functions run without raising.
 """
 
-import sys
-from pathlib import Path
-
 import pytest
 
-# Ensure the project root is importable regardless of the working
-# directory pytest is invoked from.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from simulator import service  # noqa: E402
-from tools import diagnostics  # noqa: E402
+from backend.simulator import service
+from backend.tools import diagnostics
 
 
 @pytest.fixture(autouse=True)

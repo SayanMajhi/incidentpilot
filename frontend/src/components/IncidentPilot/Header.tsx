@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 
 interface HeaderProps {
   backendUrl: string;
+  /** Called only once the user commits the value (blur, Enter, or Ping). */
   onUrlChange: (newUrl: string) => void;
   connectionStatus: 'connected' | 'offline' | 'checking';
   onPing: () => void;
@@ -13,8 +14,14 @@ export const Header: React.FC<HeaderProps> = ({
   connectionStatus,
   onPing,
 }) => {
+  // The input is a local draft. Committing on every keystroke would restart
+  // the poll loop and fire a request against every truncated prefix of the URL.
+  const [draftUrl, setDraftUrl] = useState(backendUrl);
+  useEffect(() => { setDraftUrl(backendUrl); }, [backendUrl]);
+
   const isChecking = connectionStatus === 'checking';
   const isConnected = connectionStatus === 'connected';
+  const isDirty = draftUrl.trim() !== backendUrl;
 
   let pillClass = 'pill-connection offline';
   let pillText = 'DISCONNECTED';
@@ -26,6 +33,10 @@ export const Header: React.FC<HeaderProps> = ({
     pillClass = 'pill-connection connected';
     pillText = 'CONNECTED';
   }
+
+  const commit = () => {
+    if (isDirty) onUrlChange(draftUrl);
+  };
 
   return (
     <header>
@@ -44,13 +55,26 @@ export const Header: React.FC<HeaderProps> = ({
           API TARGET:
         </label>
         <input
-          type="text"
+          type="url"
           id="backendUrl"
           className="bridge-input"
-          value={backendUrl}
-          onChange={(e) => onUrlChange(e.target.value)}
+          value={draftUrl}
+          onChange={(event) => setDraftUrl(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              commit();
+            }
+          }}
+          spellCheck={false}
+          autoComplete="off"
           aria-label="Backend FastAPI URL"
+          aria-describedby="backendUrlHint"
         />
+        <span className="visually-hidden" id="backendUrlHint">
+          Press Enter to apply a new API target.
+        </span>
         <div className={pillClass} id="connectionPill">
           <span className="dot" aria-hidden="true"></span>
           <span id="connectionText">{pillText}</span>
@@ -59,7 +83,10 @@ export const Header: React.FC<HeaderProps> = ({
           className="btn-reconnect"
           id="btnPing"
           type="button"
-          onClick={() => onPing()}
+          onClick={() => {
+            commit();
+            onPing();
+          }}
           aria-label="Test Backend Connection"
         >
           Ping API

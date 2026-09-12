@@ -529,7 +529,7 @@
   color: var(--text-muted);
 }
 
-/* Two-column layout: Centerpiece Timeline and Inspection Sidebar */
+/* Two-column layout: centerpiece timeline and inspector tabs */
 
 .incidentpilot-root .content-split {
   display: grid;
@@ -884,63 +884,6 @@
   color: #ff9da8;
 }
 
-/* Inspection Sidebar */
-
-.incidentpilot-root .inspection-column {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.incidentpilot-root .card-panel {
-  background: var(--bg-elevated);
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-lg);
-  padding: 20px;
-}
-
-.incidentpilot-root .card-panel-title {
-  font-size: 0.85rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
-  margin-bottom: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.incidentpilot-root .data-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.85rem;
-}
-
-.incidentpilot-root .data-table tr {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.incidentpilot-root .data-table tr:last-child {
-  border-bottom: none;
-}
-
-.incidentpilot-root .data-table td {
-  padding: 8px 4px;
-}
-
-.incidentpilot-root .data-table td.key {
-  color: var(--text-muted);
-  font-weight: 500;
-  width: 38%;
-}
-
-.incidentpilot-root .data-table td.val {
-  color: var(--text-bright);
-  font-family: var(--font-mono);
-  word-break: break-word;
-}
-
 .incidentpilot-root .source-pill {
   font-size: 0.75rem;
   padding: 2px 7px;
@@ -1085,19 +1028,29 @@
 .incidentpilot-root .command-health.down { border-color: var(--crimson-border); color: #fecaca; background: var(--crimson-surface); }
 .incidentpilot-root .command-health.degraded { border-color: var(--amber-border); color: var(--amber); background: var(--amber-surface); }
 
-.incidentpilot-root .command-run {
+.incidentpilot-root .command-running {
+  display: inline-flex;
   flex: 0 0 auto;
-  min-height: 42px;
-  padding: 0 18px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
   border: 1px solid var(--peach-border);
   border-radius: var(--radius-md);
-  background: linear-gradient(135deg, #6366f1, #22d3ee);
-  color: #fff;
-  cursor: pointer;
-  font-family: var(--font-ui);
-  font-weight: 700;
+  background: var(--peach-surface, rgba(255, 165, 134, .08));
+  color: var(--peach);
+  font-family: var(--font-mono);
+  font-size: .8rem;
+  letter-spacing: .04em;
+  text-transform: uppercase;
 }
-.incidentpilot-root .command-run:disabled { cursor: not-allowed; opacity: .55; }
+.incidentpilot-root .command-running > span[aria-hidden="true"] {
+  animation: ip-spin 1s linear infinite;
+  display: inline-block;
+}
+
+@keyframes ip-spin {
+  to { transform: rotate(360deg); }
+}
 
 .incidentpilot-root .incident-focus { padding: 22px 24px; }
 .incidentpilot-root .incident-focus-active { border-color: var(--crimson-border); }
@@ -1154,7 +1107,7 @@
   .incidentpilot-root .incident-focus-heading { align-items: stretch; flex-direction: column; }
   .incidentpilot-root .command-state { align-items: stretch; flex-direction: column; gap: 12px; }
   .incidentpilot-root .command-state > div { grid-template-columns: 110px 1fr; align-items: baseline; }
-  .incidentpilot-root .command-run { width: 100%; }
+  .incidentpilot-root .command-running { justify-content: center; width: 100%; }
   .incidentpilot-root .incident-focus-facts { grid-template-columns: 1fr; }
   .incidentpilot-root .incident-verdict { width: fit-content; }
   .incidentpilot-root .inspector-tabs { position: static; }
@@ -1178,7 +1131,7 @@
 .incidentpilot-root .controls-panel,
 .incidentpilot-root .timeline-panel,
 .incidentpilot-root .telemetry-monitor-panel,
-.incidentpilot-root .card-panel {
+.incidentpilot-root .inspector-tabs {
   box-shadow: 0 16px 38px rgba(5, 10, 22, .18), inset 0 1px 0 rgba(255,255,255,.025);
 }
 

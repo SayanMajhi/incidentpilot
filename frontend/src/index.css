@@ -173,17 +173,8 @@ img { max-width: 100%; display: block; }
 }
 
 /* ─── Utility: Monospace ─── */
-.mono {
-  font-family: var(--font-mono);
-}
 
 /* ─── Utility: Container ─── */
-.container {
-  width: 100%;
-  max-width: var(--max-width);
-  margin: 0 auto;
-  padding: 0 var(--space-lg);
-}
 
 .container-landing {
   width: 100%;
@@ -195,4 +186,18 @@ img { max-width: 100%; display: block; }
 /* ─── App Root ─── */
 #root {
   min-height: 100vh;
+}
+
+/* Accessible label text that stays out of the visual layout. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }

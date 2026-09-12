@@ -1,5 +1,5 @@
 """
-Tests for agent/llm_decision.py
+Tests for backend/agent/llm_decision.py
 
 All tests use a fake/mocked Hugging Face client. No real network calls or
 Hugging Face API calls are made anywhere in this file.
@@ -20,7 +20,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agent.llm_decision import LLMDecisionEngine
+from backend.agent.llm_decision import LLMDecisionEngine
 
 
 OBSERVATIONS = {
@@ -368,4 +368,4 @@ def test_missing_model_escalates():
     when a real client is built, rather than raising out of decide()."""
     engine = LLMDecisionEngine(client=None, model=None, api_key="fake-token")
     decision = engine.decide(OBSERVATIONS)
-    assert_safe_escalation(decision, engine)
+    assert_safe_escalation(decision, engine, expected_last_status="missing_model")

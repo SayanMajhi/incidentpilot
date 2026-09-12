@@ -1,5 +1,5 @@
 """
-Tests for the IncidentPilot remediation tools in tools/remediation.py.
+Tests for the IncidentPilot remediation tools in backend/tools/remediation.py.
 
 These tests verify:
     - restart_service() executes and produces a verifiable effect.
@@ -9,17 +9,10 @@ These tests verify:
       is "resolved" or "fixed" in their returned messages/status.
 """
 
-import sys
-from pathlib import Path
-
 import pytest
 
-# Ensure the project root is importable regardless of the working
-# directory pytest is invoked from.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from simulator import service  # noqa: E402
-from tools import diagnostics, remediation  # noqa: E402
+from backend.simulator import service
+from backend.tools import diagnostics, remediation
 
 # Words that would imply the overall incident has been declared fixed.
 # Remediation actions must never use language like this - they may only
@@ -158,3 +151,37 @@ def test_scale_service_does_not_claim_incident_resolved():
 
     rejected_result = remediation.scale_service(10)
     _assert_no_resolution_claim(rejected_result)
+
+
+def test_restart_does_not_heal_an_incident_caused_by_the_deployed_version():
+    """A restart clears transient failure only. While the tracked bad
+    deployment is still the running version, the cause survives the restart,
+    so the service must stay unhealthy - otherwise verification would
+    confirm a "recovery" with the broken version still deployed."""
+    service.simulate_bad_deployment()
+
+    result = remediation.restart_service()
+
+    assert result["success"] is True
+    assert result["status"] == "completed"
+    assert service.state.status == "down"
+    assert service.state.current_version == service.BAD_DEPLOYMENT_VERSION
+    assert "still deployed" in result["message"]
+
+
+def test_restart_clears_a_transient_outage():
+    service.simulate_outage()
+
+    result = remediation.restart_service()
+
+    assert result["success"] is True
+    assert service.state.status == "healthy"
+    assert service.state.error_rate == service.HEALTHY_ERROR_RATE
+
+
+def test_reset_replicas_restores_the_baseline():
+    remediation.scale_service(4)
+    assert remediation.get_current_replicas() == 4
+
+    assert remediation.reset_replicas() == remediation.MIN_REPLICAS
+    assert remediation.get_current_replicas() == remediation.MIN_REPLICAS

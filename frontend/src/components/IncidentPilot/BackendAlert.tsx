@@ -13,8 +13,9 @@ export const BackendAlert: React.FC<BackendAlertProps> = ({ backendUrl, isOfflin
     <div className="offline-banner active" id="offlineBanner" role="alert">
       <div>
         <strong>FastAPI Backend Offline or Unreachable:</strong> No active server responding at{' '}
-        <span id="offlineUrlDisplay">{backendUrl}</span>. Launch your simulated production service
-        using: <code>.venv\Scripts\python -m uvicorn simulator.service:app --port 8000</code>
+        <span id="offlineUrlDisplay">{backendUrl}</span>. Start the simulated production service from
+        the repository root with{' '}
+        <code>python -m uvicorn backend.simulator.service:app --port 8000</code>
       </div>
       <button
         className="btn-reconnect"
