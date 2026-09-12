@@ -1,0 +1,12 @@
+# Local kind cluster for IncidentPilot.
+#
+#   kind create cluster --config deploy/kubernetes/kind-cluster.yaml
+#
+# The cluster is named "incidentpilot", so its kubeconfig context is
+# "kind-incidentpilot" - one of the contexts the Kubernetes adapter accepts by
+# default. See docs/kubernetes.md.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: incidentpilot
+nodes:
+  - role: control-plane

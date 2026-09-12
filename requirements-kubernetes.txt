@@ -1,0 +1,5 @@
+# Optional: only needed when running with ENVIRONMENT=kubernetes.
+# The simulator and the normal test suite do not need this.
+-r requirements.txt
+
+kubernetes>=31.0.0

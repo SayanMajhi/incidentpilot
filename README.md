@@ -22,23 +22,42 @@ IncidentController
                                          |
                 deterministic policy gate
                                          |
-                    remediation tools -> simulator state
+            Infrastructure interface (backend/infrastructure)
+                 /                                  \
+      SimulatorInfrastructure              KubernetesInfrastructure
+      tools -> simulator state             namespace "incidentpilot" only
                                          |
                          fresh telemetry verification
                                          |
                     recovered OR adapt/re-investigate
 ```
 
+### Execution environments
+
+`ENVIRONMENT` selects what the controller operates against:
+
+- `simulator` (default): the deterministic in-memory service. Needs nothing else.
+- `kubernetes`: a demo Deployment on a **local** cluster (kind, minikube or
+  Docker Desktop), confined to the `incidentpilot` namespace, allow-listed
+  resources, bounded replicas and allow-listed kubeconfig contexts.
+
+The controller has no environment-specific code; both adapters implement the
+same interface. Setup, configuration and safety restrictions for Kubernetes
+mode are in [docs/kubernetes.md](docs/kubernetes.md).
+
 Repository layout:
 
 ```text
 backend/
   agent/         controller, deterministic decision engine, optional HF/Qwen proposal engine
+  infrastructure/ environment interface, simulator adapter, Kubernetes adapter + gateway
   safety/        allow-list policy and action bounds
   shared/        SLO thresholds and action bounds shared by every layer
   simulator/     FastAPI app and deterministic in-memory service environment
   tools/         diagnostic reads and remediation mutations
   verification/  independent telemetry-based recovery verification
+deploy/kubernetes/ kind cluster, namespace, demo workload and optional RBAC manifests
+docs/            Kubernetes mode setup and safety
 frontend/        React 19 + TypeScript + Vite dashboard and landing experience
 tests/           unit, integration and controller-loop coverage
 scripts/         optional model connectivity check
@@ -139,6 +158,7 @@ Copy `.env.example` to `.env` only if you want file-based configuration; every v
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `ENVIRONMENT` | `simulator` | `simulator` or `kubernetes` (see [docs/kubernetes.md](docs/kubernetes.md)). |
 | `LLM_ENABLED` | `false` | Enable optional HF/Qwen proposals. Deterministic fallback remains available. |
 | `HF_TOKEN` | unset | Hugging Face access token, used only when LLM mode is enabled. |
 | `HF_MODEL` | unset | Hugging Face model identifier, used only when LLM mode is enabled. |
@@ -176,7 +196,7 @@ The dashboard polls `/status` and `/timeline` every two seconds and uses the mut
 ## Testing
 
 ```bash
-./.venv/bin/python -m pytest -q      # 118 tests
+./.venv/bin/python -m pytest -q      # no cluster needed; live Kubernetes tests are skipped
 (cd frontend && npm run build)       # tsc --build + vite build
 ```
 

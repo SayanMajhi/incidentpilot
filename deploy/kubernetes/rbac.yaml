@@ -1,0 +1,60 @@
+# OPTIONAL least-privilege identity for IncidentPilot.
+#
+# The adapter already restricts itself to the incidentpilot namespace and the
+# allow-listed Deployment/Service. This Role makes the cluster enforce the same
+# boundary, so even a bug in IncidentPilot could not reach further. It grants
+# nothing cluster-wide and nothing outside the incidentpilot namespace.
+#
+# See docs/kubernetes.md ("Least-privilege access") for creating a kubeconfig
+# context that uses this ServiceAccount.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: incidentpilot-agent
+  namespace: incidentpilot
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: incidentpilot-agent
+  namespace: incidentpilot
+rules:
+  # Observe and remediate only the demo Deployment.
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: ["incidentpilot-demo"]
+    verbs: ["get", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    resourceNames: ["incidentpilot-demo"]
+    verbs: ["get", "patch"]
+  # Revision history for rollback.
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["list"]
+  # Diagnostics.
+  - apiGroups: [""]
+    resources: ["pods", "events"]
+    verbs: ["list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  # HTTP health probes through the API server's service proxy.
+  - apiGroups: [""]
+    resources: ["services/proxy"]
+    resourceNames: ["incidentpilot-demo", "incidentpilot-demo:http"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: incidentpilot-agent
+  namespace: incidentpilot
+subjects:
+  - kind: ServiceAccount
+    name: incidentpilot-agent
+    namespace: incidentpilot
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: incidentpilot-agent

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from threading import Lock
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, PrivateAttr
 from dotenv import load_dotenv
@@ -187,6 +187,31 @@ def _reset_run_state() -> None:
     })
 
 
+def _infrastructure():
+    """The execution environment the agent operates against (see ENVIRONMENT)."""
+    from backend.infrastructure import get_infrastructure
+
+    return get_infrastructure()
+
+
+def require_simulator() -> None:
+    """Route dependency: simulator endpoints only exist in simulator mode.
+
+    In Kubernetes mode these routes would read or mutate the in-memory
+    simulator while the agent operates on the cluster, which would be
+    actively misleading, so they are refused instead.
+    """
+    infrastructure = _infrastructure()
+    if not infrastructure.supports_scenario_injection:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Simulator endpoints are unavailable while IncidentPilot is "
+                f"running against the {infrastructure.name} environment."
+            ),
+        )
+
+
 def _begin_scenario(scenario: str) -> None:
     """Activate a demo scenario and discard any previous run's results.
 
@@ -218,7 +243,7 @@ class SimulationActionResponse(BaseModel):
     message: str
     state: ServiceState
 #endpoint
-@app.get("/health", response_model=HealthResponse)
+@app.get("/health", response_model=HealthResponse, dependencies=[Depends(require_simulator)])
 def get_health() -> HealthResponse:
     """returns the current health status of the simulated service
 
@@ -226,7 +251,7 @@ def get_health() -> HealthResponse:
         HealthResponse:the current status "healthy" / "down"
     """
     return HealthResponse(status=state.status)
-@app.get("/metrics", response_model=MetricsResponse)
+@app.get("/metrics", response_model=MetricsResponse, dependencies=[Depends(require_simulator)])
 def get_metrics() -> MetricsResponse:
     """return the current operational metrics of the simulated service
 
@@ -239,14 +264,14 @@ def get_metrics() -> MetricsResponse:
         status=state.status,
     )
 
-@app.get("/version", response_model=VersionResponse)
+@app.get("/version", response_model=VersionResponse, dependencies=[Depends(require_simulator)])
 def get_version() -> VersionResponse:
     """return the current deployment version of the simulated service
     returns:
         VersionResponse:the current deployed version string
     """
     return VersionResponse(current_version=state.current_version)
-@app.post("/simulate/outage", response_model=SimulationActionResponse)
+@app.post("/simulate/outage", response_model=SimulationActionResponse, dependencies=[Depends(require_simulator)])
 def simulate_outage() -> SimulationActionResponse:
     """simulate a production outage.
 
@@ -290,7 +315,7 @@ def clear_transient_failure() -> bool:
     return state.status == HEALTHY_STATUS
 
 
-@app.post("/simulate/recover", response_model=SimulationActionResponse)
+@app.post("/simulate/recover", response_model=SimulationActionResponse, dependencies=[Depends(require_simulator)])
 def simulate_recover() -> SimulationActionResponse:
     """Restore the simulated service to its healthy baseline state.
 
@@ -306,7 +331,7 @@ def simulate_recover() -> SimulationActionResponse:
     )
 
 
-@app.post("/simulate/bad-deployment", response_model=SimulationActionResponse)
+@app.post("/simulate/bad-deployment", response_model=SimulationActionResponse, dependencies=[Depends(require_simulator)])
 def simulate_bad_deployment() -> SimulationActionResponse:
     """simulate a bad deployment that ships a new, broken version.
 
@@ -336,7 +361,7 @@ def simulate_bad_deployment() -> SimulationActionResponse:
         state=state,
     )
 
-@app.post("/simulate/adaptive-incident", response_model=SimulationActionResponse)
+@app.post("/simulate/adaptive-incident", response_model=SimulationActionResponse, dependencies=[Depends(require_simulator)])
 def simulate_adaptive_incident() -> SimulationActionResponse:
     """
     Start a compound incident designed to test agent adaptation.
@@ -371,7 +396,7 @@ def simulate_adaptive_incident() -> SimulationActionResponse:
         state=state,
     )
 
-@app.post("/simulate/rollback", response_model=SimulationActionResponse)
+@app.post("/simulate/rollback", response_model=SimulationActionResponse, dependencies=[Depends(require_simulator)])
 def simulate_rollback(version: str) -> SimulationActionResponse:
     """Simulate rolling back the deployed version.
 
@@ -492,30 +517,50 @@ def get_runtime_config():
     it displays are always the ones the agent and the safety policy actually
     use.
     """
-    return slo.as_dict()
+    config = slo.as_dict()
+    config["environment"] = _infrastructure().describe()
+    return config
 
 
 @app.get("/status")
 def get_incident_status():
     """
-    Return the current simulated service state and latest agent result.
+    Return the current service state and latest agent result.
+
+    Read through the same infrastructure adapter the agent uses, so the
+    dashboard shows the simulator or the Kubernetes workload accordingly.
     """
-    from backend.tools import diagnostics
-    from backend.tools.remediation import get_current_replicas
+    from backend.infrastructure import InfrastructureError
+
+    infrastructure = _infrastructure()
+
+    try:
+        metrics = infrastructure.get_metrics()
+        service_state = {
+            "status": metrics["status"],
+            "error_rate": metrics["error_rate"],
+            "latency_ms": metrics["latency_ms"],
+            "current_version": infrastructure.get_current_version(),
+        }
+        replicas = infrastructure.get_capacity()["replicas"]
+        logs = infrastructure.query_logs()
+        deployment_history = infrastructure.get_deployment_history()
+    except InfrastructureError as error:
+        logger.warning("Could not read %s environment: %s", infrastructure.name, error)
+        raise HTTPException(
+            status_code=503,
+            detail=f"The {infrastructure.name} environment is unavailable: {error}",
+        ) from error
 
     return {
-        "service": {
-            "status": state.status,
-            "error_rate": state.error_rate,
-            "latency_ms": state.latency_ms,
-            "current_version": state.current_version,
-        },
-        "scenario": active_scenario,
-        "replicas": get_current_replicas(),
+        "service": service_state,
+        "environment": infrastructure.name,
+        "scenario": active_scenario if infrastructure.supports_scenario_injection else infrastructure.name,
+        "replicas": replicas,
         "agent": dict(run_state),
         "diagnostics": {
-            "logs": diagnostics.query_logs(),
-            "deployment_history": diagnostics.get_deployment_history(),
+            "logs": logs,
+            "deployment_history": deployment_history,
         },
         "incident": last_incident_result,
     }
@@ -570,6 +615,10 @@ def get_incident_timeline():
 def reset_incident():
     """
     Reset the simulated service to its initial healthy state.
+
+    Outside simulator mode only the agent's run history is cleared: the API
+    never deletes or re-creates cluster resources. Reset a Kubernetes
+    workload by re-applying its manifest (see docs/kubernetes.md).
     """
     from backend.tools import remediation
 
@@ -578,13 +627,25 @@ def reset_incident():
     if run_state["running"]:
         raise HTTPException(status_code=409, detail="Cannot reset while an incident run is active.")
 
+    infrastructure = _infrastructure()
+
+    last_incident_result = None
+    _reset_run_state()
+
+    if not infrastructure.supports_scenario_injection:
+        return {
+            "message": (
+                "IncidentPilot run history cleared. The "
+                f"{infrastructure.name} environment was not modified."
+            ),
+            "state": None,
+        }
+
     _clear_faults()
     state.current_version = INITIAL_VERSION
     remediation.reset_replicas()
 
     active_scenario = "healthy"
-    last_incident_result = None
-    _reset_run_state()
 
     return {
         "message": "IncidentPilot simulator reset.",

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from backend.agent.decision import collect_evidence, decision_engine, find_failed_attempt
 from backend.agent.llm_decision import llm_decision_engine
 from backend.safety.policy import policy
-from backend.tools import diagnostics, remediation
+from backend.infrastructure import get_infrastructure
 from backend.verification.verifier import verifier
 
 
@@ -25,6 +25,7 @@ class IncidentController:
             use_llm=None,
             llm_engine=None,
             deterministic_engine=None,
+            infrastructure=None,
     ):
         if use_llm is None:
             use_llm = (
@@ -49,7 +50,17 @@ class IncidentController:
             else decision_engine
         )
 
+        # The execution environment this controller observes and acts on,
+        # chosen by configuration. The controller never knows which one it is.
+        self._infrastructure = infrastructure
+
         self._observation_ids = itertools.count(1)
+
+    @property
+    def infrastructure(self):
+        if self._infrastructure is None:
+            self._infrastructure = get_infrastructure()
+        return self._infrastructure
 
     # ---------------------------------------------------------
     # OBSERVE
@@ -57,9 +68,9 @@ class IncidentController:
 
     def observe(self):
         """
-        Collect a fresh telemetry snapshot of the simulated service.
+        Collect a fresh telemetry snapshot of the service.
 
-        Every call reads the live simulator again and is stamped with a new,
+        Every call reads the live environment again and is stamped with a new,
         monotonically increasing ``observation_id``, so the audit trail shows
         that each attempt reasoned over its own observation rather than a
         cached one.
@@ -67,10 +78,10 @@ class IncidentController:
         return {
             "observation_id": next(self._observation_ids),
             "observed_at": datetime.now(timezone.utc).isoformat(),
-            "metrics": diagnostics.get_metrics(),
-            "health": diagnostics.check_health(),
-            "current_version": diagnostics.get_current_version(),
-            "capacity": diagnostics.get_capacity(),
+            "metrics": self.infrastructure.get_metrics(),
+            "health": self.infrastructure.check_health(),
+            "current_version": self.infrastructure.get_current_version(),
+            "capacity": self.infrastructure.get_capacity(),
         }
 
     # ---------------------------------------------------------
@@ -87,8 +98,8 @@ class IncidentController:
         """
         observations = dict(observation) if observation is not None else self.observe()
 
-        observations["logs"] = diagnostics.query_logs()
-        observations["deployment_history"] = diagnostics.get_deployment_history()
+        observations["logs"] = self.infrastructure.query_logs()
+        observations["deployment_history"] = self.infrastructure.get_deployment_history()
         observations["evidence"] = collect_evidence(observations)
 
         return observations
@@ -215,7 +226,7 @@ class IncidentController:
             #
             # The model remains advisory. When its action conflicts
             # with the deterministic interpretation of the same
-            # simulator evidence, prefer the evidence-backed action.
+            # observed evidence, prefer the evidence-backed action.
             # -------------------------------------------------
 
             deterministic_action = deterministic_decision.get("action")
@@ -226,7 +237,7 @@ class IncidentController:
                 deterministic_decision["llm_proposal"] = llm_decision
                 deterministic_decision["arbitration_reason"] = (
                     "The model proposal conflicted with the action supported "
-                    "by deterministic simulator evidence, so the evidence-backed "
+                    "by deterministic evidence, so the evidence-backed "
                     "action was selected."
                 )
                 return deterministic_decision
@@ -389,17 +400,17 @@ class IncidentController:
         # -----------------------------------------------------
 
         if action == "rollback_deployment":
-            result = remediation.rollback_deployment(
+            result = self.infrastructure.rollback_deployment(
                 target
             )
 
         elif action == "scale_service":
-            result = remediation.scale_service(
+            result = self.infrastructure.scale_service(
                 target
             )
 
         elif action == "restart_service":
-            result = remediation.restart_service()
+            result = self.infrastructure.restart_service()
 
         else:
             return {
@@ -431,10 +442,10 @@ class IncidentController:
         """
 
         samples = [
-            diagnostics.get_metrics()
+            self.infrastructure.get_metrics()
             for _ in range(self.VERIFICATION_SAMPLES)
         ]
-        health = diagnostics.check_health()
+        health = self.infrastructure.check_health()
 
         result = verifier.verify_sustained(samples)
 

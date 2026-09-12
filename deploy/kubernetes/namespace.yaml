@@ -1,0 +1,8 @@
+# The only namespace IncidentPilot is permitted to operate in.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: incidentpilot
+  labels:
+    incidentpilot.io/managed: "true"
+    pod-security.kubernetes.io/enforce: baseline
