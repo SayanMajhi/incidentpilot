@@ -31,9 +31,9 @@ export const InspectorTabs: React.FC<InspectorTabsProps> = ({ summary, decision,
         <span className="source-pill">{summary.agentStatus}</span>
       </div>
       <div className="inspector-tablist" role="tablist" aria-label="Inspection sections">
-        {tabs.map((tab) => <button key={tab.id} id={`tab-${tab.id}`} type="button" role="tab" aria-selected={activeTab === tab.id} aria-controls={`panel-${tab.id}`} onClick={() => setActiveTab(tab.id)}>{tab.label}</button>)}
+        {tabs.map((tab) => <button key={tab.id} id={`tab-${tab.id}`} type="button" role="tab" aria-selected={activeTab === tab.id} aria-controls={activeTab === tab.id ? 'inspector-panel' : undefined} onClick={() => setActiveTab(tab.id)}>{tab.label}</button>)}
       </div>
-      <div className="inspector-panel" id={`panel-${activeTab}`} role="tabpanel" aria-labelledby={`tab-${activeTab}`}>
+      <div className="inspector-panel" id="inspector-panel" role="tabpanel" aria-labelledby={`tab-${activeTab}`}>
         {activeTab === 'summary' && <dl>
           <Row label="Active scenario" value={summary.scenario} /><Row label="Agent status" value={summary.agentStatus} />
           <Row label="Total attempts" value={summary.attempts} /><Row label="Final action" value={summary.finalAction} />

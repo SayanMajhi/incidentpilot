@@ -1,18 +1,26 @@
 import React, { useRef, useEffect, useCallback } from 'react';
-import type { TelemetryPoint } from '../../types/incidentPilot';
-
-const MAX_SAMPLES = 40;
+import type { RuntimeConfig, TelemetryPoint } from '../../types/incidentPilot';
 
 interface TelemetryMonitorProps {
   telemetryBuffer: TelemetryPoint[];
+  maxSamples: number;
+  config: RuntimeConfig;
 }
 
-export const TelemetryMonitor: React.FC<TelemetryMonitorProps> = ({ telemetryBuffer }) => {
+export const TelemetryMonitor: React.FC<TelemetryMonitorProps> = ({ telemetryBuffer, maxSamples, config }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Thresholds and the chart's y-axis ceiling come from `GET /config`, so the
+  // lines drawn here are the ones the backend actually enforces.
+  const alertErrorRate = config.elevated.error_rate;
+  const alertLatencyMs = config.elevated.latency_ms;
+  const sloErrorRate = config.recovery.max_error_rate;
+  const sloLatencyMs = config.recovery.max_latency_ms;
+  const latencyCeiling = config.chart.latency_ceiling_ms;
 
   const lastSample = telemetryBuffer[telemetryBuffer.length - 1];
 
-  const isSpike = Boolean(lastSample && (lastSample.errorRate > 0.1 || lastSample.latency > 300));
+  const isSpike = Boolean(lastSample && (lastSample.errorRate > alertErrorRate || lastSample.latency > alertLatencyMs));
   const statusPillClass = !lastSample ? 'monitor-pill' : isSpike ? 'monitor-pill surge' : 'monitor-pill nominal';
   const statusPillText = !lastSample ? 'AWAITING DATA' : isSpike ? 'SURGE DETECTED' : 'NOMINAL STEADY';
 
@@ -61,9 +69,9 @@ export const TelemetryMonitor: React.FC<TelemetryMonitorProps> = ({ telemetryBuf
       ctx.stroke();
     }
 
-    // Draw Thresholds
-    // Error Threshold: 10% (scale 0% to 100%)
-    const errorThresholdY = padY + plotH - 0.1 * plotH;
+    // Draw thresholds. Error rate is plotted on a 0-100% scale; latency on a
+    // 0..latencyCeiling scale.
+    const errorThresholdY = padY + plotH - alertErrorRate * plotH;
     ctx.strokeStyle = 'rgba(181, 26, 43, 0.5)';
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
@@ -74,10 +82,9 @@ export const TelemetryMonitor: React.FC<TelemetryMonitorProps> = ({ telemetryBuf
 
     ctx.font = '11px "IBM Plex Mono", monospace';
     ctx.fillStyle = 'rgba(255, 157, 168, 0.9)';
-    ctx.fillText('10% Alert', 4, errorThresholdY + 4);
+    ctx.fillText(`${(alertErrorRate * 100).toFixed(0)}% Alert`, 4, errorThresholdY + 4);
 
-    // Latency SLA Threshold: 300ms (scale 0 to 1200ms)
-    const latThresholdY = padY + plotH - (300 / 1200) * plotH;
+    const latThresholdY = padY + plotH - (alertLatencyMs / latencyCeiling) * plotH;
     ctx.strokeStyle = 'rgba(255, 165, 134, 0.45)';
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
@@ -87,20 +94,20 @@ export const TelemetryMonitor: React.FC<TelemetryMonitorProps> = ({ telemetryBuf
     ctx.setLineDash([]);
 
     ctx.fillStyle = 'rgba(255, 165, 134, 0.9)';
-    ctx.fillText('300ms SLA', 4, latThresholdY + 4);
+    ctx.fillText(`${alertLatencyMs}ms alert`, 4, latThresholdY + 4);
 
     if (telemetryBuffer.length < 2) {
       ctx.restore();
       return;
     }
 
-    const step = plotW / (MAX_SAMPLES - 1);
+    const step = plotW / Math.max(maxSamples - 1, 1);
 
-    // 1. Draw Latency Trace (scale 0 to 1200ms)
+    // 1. Draw the latency trace.
     ctx.beginPath();
     telemetryBuffer.forEach((pt, idx) => {
       const x = padX + idx * step;
-      const normalized = Math.min(Math.max(pt.latency / 1200, 0), 1);
+      const normalized = Math.min(Math.max(pt.latency / latencyCeiling, 0), 1);
       const y = padY + plotH - normalized * plotH;
       if (idx === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
@@ -109,7 +116,7 @@ export const TelemetryMonitor: React.FC<TelemetryMonitorProps> = ({ telemetryBuf
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // 2. Draw Error Rate Trace (scale 0.0 to 1.0)
+    // 2. Draw the error-rate trace.
     ctx.beginPath();
     telemetryBuffer.forEach((pt, idx) => {
       const x = padX + idx * step;
@@ -132,21 +139,27 @@ export const TelemetryMonitor: React.FC<TelemetryMonitorProps> = ({ telemetryBuf
     ctx.arc(lastX, lastErrY, 4, 0, Math.PI * 2);
     ctx.fill();
 
-    const lastLatY = padY + plotH - Math.min(Math.max(lastPt.latency / 1200, 0), 1) * plotH;
+    const lastLatY = padY + plotH - Math.min(Math.max(lastPt.latency / latencyCeiling, 0), 1) * plotH;
     ctx.fillStyle = '#ffa586';
     ctx.beginPath();
     ctx.arc(lastX, lastLatY, 4, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
-  }, [telemetryBuffer]);
+  }, [telemetryBuffer, maxSamples, alertErrorRate, alertLatencyMs, latencyCeiling]);
 
+  // Redraw whenever the buffer or the thresholds change.
+  useEffect(() => { renderCanvas(); }, [renderCanvas]);
+
+  // Register the resize listener once, and read the latest renderer from a ref
+  // so a new telemetry sample does not tear down and re-add the listener.
+  const renderRef = useRef(renderCanvas);
+  useEffect(() => { renderRef.current = renderCanvas; }, [renderCanvas]);
   useEffect(() => {
-    renderCanvas();
-    const handleResize = () => renderCanvas();
+    const handleResize = () => renderRef.current();
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, [renderCanvas]);
+  }, []);
 
   return (
     <section className="telemetry-monitor-panel" aria-labelledby="monitor-heading">
@@ -167,7 +180,9 @@ export const TelemetryMonitor: React.FC<TelemetryMonitorProps> = ({ telemetryBuf
           <span className="monitor-stat-value" id="monitorErrVal">
             {lastSample ? `${(lastSample.errorRate * 100).toFixed(1)}%` : '—'}
           </span>
-          <span className="hud-subtext">Floor: &gt;10.0% Alert</span>
+          <span className="hud-subtext">
+            Alert &gt;{(alertErrorRate * 100).toFixed(1)}% · SLO {(sloErrorRate * 100).toFixed(1)}%
+          </span>
         </div>
 
         <div className="monitor-stat-box">
@@ -175,7 +190,7 @@ export const TelemetryMonitor: React.FC<TelemetryMonitorProps> = ({ telemetryBuf
           <span className="monitor-stat-value" id="monitorLatVal">
             {lastSample ? `${lastSample.latency}ms` : '—'}
           </span>
-          <span className="hud-subtext">Limit: 300ms SLA</span>
+          <span className="hud-subtext">Alert &gt;{alertLatencyMs}ms · SLO {sloLatencyMs}ms</span>
         </div>
 
         <div className="monitor-stat-box">
@@ -195,7 +210,7 @@ export const TelemetryMonitor: React.FC<TelemetryMonitorProps> = ({ telemetryBuf
         <div className="monitor-stat-box">
           <span className="monitor-stat-label">Buffer Window</span>
           <span className="monitor-stat-value" id="monitorSampleVal">
-            {telemetryBuffer.length} / {MAX_SAMPLES}
+            {telemetryBuffer.length} / {maxSamples}
           </span>
           <span className="hud-subtext">Rolling samples</span>
         </div>
@@ -216,11 +231,11 @@ export const TelemetryMonitor: React.FC<TelemetryMonitorProps> = ({ telemetryBuf
         <div className="legend-items">
           <div className="legend-item">
             <span className="legend-swatch" style={{ background: '#b51a2b' }}></span>
-            <span>Error Rate (%) [10% Alert Floor]</span>
+            <span>Error Rate (%) [{(alertErrorRate * 100).toFixed(0)}% alert]</span>
           </div>
           <div className="legend-item">
             <span className="legend-swatch" style={{ background: '#ffa586' }}></span>
-            <span>Latency (ms) [300ms SLA]</span>
+            <span>Latency (ms) [{alertLatencyMs}ms alert]</span>
           </div>
         </div>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--text-muted)' }}>

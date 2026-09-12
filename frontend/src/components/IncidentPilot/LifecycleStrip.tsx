@@ -4,13 +4,15 @@ import type { Attempt, ServiceState } from '../../types/incidentPilot';
 interface LifecycleStripProps {
   service: ServiceState;
   attempts: Attempt[];
-  agentStatus: string;
+  /** True when the backend verified recovery, read from the incident result
+   *  rather than inferred from a display string. */
+  isRecovered: boolean;
   isRunning: boolean;
 }
 
-export const LifecycleStrip: React.FC<LifecycleStripProps> = ({ service, attempts, agentStatus, isRunning }) => {
+export const LifecycleStrip: React.FC<LifecycleStripProps> = ({ service, attempts, isRecovered, isRunning }) => {
   const hasRun = attempts.length > 0;
-  const recovered = agentStatus === 'Resolved';
+  const recovered = isRecovered;
   const activeIncident = service.status === 'down';
   const stages = [
     { label: 'Healthy', complete: service.status === 'healthy' || hasRun },

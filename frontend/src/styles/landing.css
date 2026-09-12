@@ -350,72 +350,11 @@
   flex-shrink: 0;
 }
 
-.pipeline-connector-fill {
-  height: 100%;
-  width: 0%;
-  background: var(--accent-primary);
-  border-radius: 1px;
-  transition: width 0.8s var(--ease-out);
-}
-
 /* Pipeline animation states */
 .pipeline-node.active .pipeline-node-circle {
   border-color: var(--accent-primary);
   background: var(--accent-ultra-light);
   box-shadow: 0 0 20px rgba(99, 102, 241, 0.2);
-}
-
-.pipeline-node.active .pipeline-node-label {
-  color: var(--accent-light);
-}
-
-.pipeline-node.completed .pipeline-node-circle {
-  border-color: var(--status-healthy);
-  background: var(--status-healthy-dim);
-}
-
-.pipeline-node.completed .pipeline-node-label {
-  color: var(--status-healthy);
-}
-
-.pipeline-node.failed .pipeline-node-circle {
-  border-color: var(--status-critical);
-  background: var(--status-critical-dim);
-  animation: shake 0.5s ease-in-out;
-}
-
-.pipeline-node.failed .pipeline-node-label {
-  color: var(--status-critical);
-}
-
-.pipeline-node.retry .pipeline-node-circle {
-  border-color: var(--status-warning);
-  background: var(--status-warning-dim);
-}
-
-.pipeline-node.retry .pipeline-node-label {
-  color: var(--status-warning);
-}
-
-.pipeline-connector.active .pipeline-connector-fill {
-  width: 100%;
-  background: var(--accent-primary);
-}
-
-.pipeline-connector.completed .pipeline-connector-fill {
-  width: 100%;
-  background: var(--status-healthy);
-}
-
-.pipeline-connector.failed .pipeline-connector-fill {
-  width: 100%;
-  background: var(--status-critical);
-}
-
-@keyframes shake {
-  0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(-3px); }
-  75% { transform: translateX(3px); }
 }
 
 /* Retry arc */
@@ -429,10 +368,6 @@
   transition: opacity 0.6s ease;
 }
 
-.pipeline-retry-arc.visible {
-  opacity: 1;
-}
-
 /* Pipeline status label */
 .pipeline-status {
   text-align: center;
@@ -442,12 +377,6 @@
   min-height: 24px;
   transition: all 0.4s ease;
 }
-
-.pipeline-status.healthy { color: var(--status-healthy); }
-.pipeline-status.investigating { color: var(--accent-light); }
-.pipeline-status.failed { color: var(--status-critical); }
-.pipeline-status.adapting { color: var(--status-warning); }
-.pipeline-status.resolved { color: var(--status-healthy); }
 
 .lifecycle-caption {
   color: var(--text-tertiary);
@@ -967,4 +896,12 @@
   .how-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+}
+
+.landing-page .section-note {
+  margin-top: 12px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: .82rem;
+  line-height: 1.6;
 }

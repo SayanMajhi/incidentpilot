@@ -1,34 +1,47 @@
 import React from 'react';
-import type { ServiceState } from '../../types/incidentPilot';
+import type { RuntimeConfig, ServiceState } from '../../types/incidentPilot';
 
 interface TelemetryDashboardProps {
   simState: ServiceState;
   currentReplicas: number;
   lastSyncTime: string;
+  config: RuntimeConfig;
+  isOffline: boolean;
 }
+
+const EM_DASH = '—';
 
 export const TelemetryDashboard: React.FC<TelemetryDashboardProps> = ({
   simState,
   currentReplicas,
   lastSyncTime,
+  config,
+  isOffline,
 }) => {
-  const status = simState.status || 'healthy';
+  // Before the first successful poll there is no telemetry. The panel says so
+  // rather than substituting healthy-looking placeholder values.
+  const hasTelemetry = simState.status !== 'unknown';
+  const status = simState.status;
   const isDown = status === 'down';
-  const statusDesc = status === 'unknown'
+  const statusDesc = !hasTelemetry
     ? 'Awaiting backend telemetry'
+    : isOffline
+    ? 'Last known state · API unavailable'
     : isDown
     ? 'Active production incident detected'
     : 'All SLO objectives nominal';
 
-  const errRateNum = typeof simState.error_rate === 'number' ? simState.error_rate : 0.01;
-  const errRateFormatted = (errRateNum * 100).toFixed(1) + '%';
-  const isErrSpike = errRateNum > 0.1;
+  const errRateFormatted = hasTelemetry ? `${(simState.error_rate * 100).toFixed(1)}%` : EM_DASH;
+  const isErrSpike = hasTelemetry && simState.error_rate > config.elevated.error_rate;
 
-  const latencyNum = typeof simState.latency_ms === 'number' ? simState.latency_ms : 100;
-  const isLatSpike = latencyNum > 300;
+  const isLatSpike = hasTelemetry && simState.latency_ms > config.elevated.latency_ms;
 
-  const version = simState.current_version || '—';
-  const versionDesc = version === 'v42' ? 'Incident trigger deployment' : 'Stable build';
+  const version = simState.current_version || EM_DASH;
+  const versionDesc = version === config.bad_deployment_version
+    ? 'Incident trigger deployment'
+    : version === config.baseline.version
+    ? 'Stable build'
+    : 'Deployed build';
 
   return (
     <section className="hud-panel" aria-labelledby="hud-heading">
@@ -61,7 +74,10 @@ export const TelemetryDashboard: React.FC<TelemetryDashboardProps> = ({
           >
             {errRateFormatted}
           </div>
-          <span className="hud-subtext">Threshold: &gt; 10.0% alert</span>
+          <span className="hud-subtext">
+            Alert above {(config.elevated.error_rate * 100).toFixed(1)}% · SLO{' '}
+            {(config.recovery.max_error_rate * 100).toFixed(1)}%
+          </span>
         </div>
 
         <div className="hud-card">
@@ -71,10 +87,14 @@ export const TelemetryDashboard: React.FC<TelemetryDashboardProps> = ({
             id="valLatency"
             style={{ color: isLatSpike ? '#ff9da8' : 'var(--text-bright)' }}
           >
-            {latencyNum}
-            <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>ms</span>
+            {hasTelemetry ? simState.latency_ms : EM_DASH}
+            {hasTelemetry && (
+              <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>ms</span>
+            )}
           </div>
-          <span className="hud-subtext">SLA Limit: 300ms</span>
+          <span className="hud-subtext">
+            Alert above {config.elevated.latency_ms}ms · SLO {config.recovery.max_latency_ms}ms
+          </span>
         </div>
 
         <div className="hud-card">
@@ -90,9 +110,11 @@ export const TelemetryDashboard: React.FC<TelemetryDashboardProps> = ({
         <div className="hud-card">
           <span className="hud-label">Replicas</span>
           <div className="hud-value" id="valReplicas">
-            {currentReplicas}
+            {hasTelemetry ? currentReplicas : EM_DASH}
           </div>
-          <span className="hud-subtext">Permitted: 1 to 5 pods</span>
+          <span className="hud-subtext">
+            Permitted: {config.replicas.min} to {config.replicas.max} pods
+          </span>
         </div>
       </div>
     </section>

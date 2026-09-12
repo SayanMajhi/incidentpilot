@@ -2,23 +2,16 @@
 Tests for the IncidentPilot simulated production service.
 
 These tests use FastAPI's TestClient (backed by httpx) to exercise the
-HTTP endpoints defined in simulator/service.py. Each test resets the
+HTTP endpoints defined in backend/simulator/service.py. Each test resets the
 module-level state before running, so tests are independent of
 execution order.
 """
 
-import sys
-from pathlib import Path
-
 import pytest
 from fastapi.testclient import TestClient
 
-# Ensure the project root is importable regardless of the working
-# directory pytest is invoked from.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from simulator import service  # noqa: E402
-from simulator.service import app  # noqa: E402
+from backend.simulator import service
+from backend.simulator.service import app
 
 client = TestClient(app)
 

@@ -1,4 +1,4 @@
-from verification.verifier import verifier
+from backend.verification.verifier import verifier
 
 
 def test_sustained_health_is_recovered():

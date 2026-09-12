@@ -1,14 +1,26 @@
 import React from 'react';
+import type { ScenarioId } from '../../types/incidentPilot';
+import { SCENARIO_LABELS } from '../../types/incidentPilot';
 
 interface ScenarioSelectorProps {
-  onSelectScenario: (scenario: string) => void;
+  onSelectScenario: (scenario: ScenarioId) => void;
   onReset: () => void;
   onRunIncident: () => void;
   isRunning: boolean;
   runLabel: string;
   disabled?: boolean;
+  /** The scenario the backend currently reports as active. */
   activeScenario?: string;
 }
+
+/** The scenarios the backend exposes, in demo order. Identifiers match the
+ *  values `/status` reports, so no label round-tripping is required. */
+const SCENARIOS: Array<{ id: ScenarioId; domId: string; className?: string }> = [
+  { id: 'healthy', domId: 'btnScenarioNormal' },
+  { id: 'generic_outage', domId: 'btnScenarioOutage' },
+  { id: 'bad_deployment', domId: 'btnScenarioBadDeploy' },
+  { id: 'adaptive_incident', domId: 'btnScenarioAdaptive', className: 'adaptive-highlight' },
+];
 
 export const ScenarioSelector: React.FC<ScenarioSelectorProps> = ({
   onSelectScenario,
@@ -19,6 +31,8 @@ export const ScenarioSelector: React.FC<ScenarioSelectorProps> = ({
   disabled = false,
   activeScenario = 'None',
 }) => {
+  const controlsDisabled = isRunning || disabled;
+
   return (
     <section className="controls-panel" aria-labelledby="controls-heading">
       <div className="controls-split">
@@ -26,42 +40,22 @@ export const ScenarioSelector: React.FC<ScenarioSelectorProps> = ({
           <span className="panel-title" id="controls-heading" style={{ marginRight: '6px' }}>
             Demo scenarios:
           </span>
-          <button
-            className={`btn-scenario ${activeScenario === 'Normal / Healthy' ? 'selected' : ''}`}
-            id="btnScenarioNormal"
-            type="button"
-            onClick={() => onSelectScenario('Normal / Healthy')}
-            disabled={isRunning || disabled}
-          >
-            Normal / Healthy
-          </button>
-          <button
-            className={`btn-scenario ${activeScenario === 'Generic Outage' ? 'selected' : ''}`}
-            id="btnScenarioOutage"
-            type="button"
-            onClick={() => onSelectScenario('Generic Outage')}
-            disabled={isRunning || disabled}
-          >
-            Generic Outage
-          </button>
-          <button
-            className={`btn-scenario ${activeScenario === 'Bad Deployment' ? 'selected' : ''}`}
-            id="btnScenarioBadDeploy"
-            type="button"
-            onClick={() => onSelectScenario('Bad Deployment')}
-            disabled={isRunning || disabled}
-          >
-            Bad Deployment
-          </button>
-          <button
-            className={`btn-scenario adaptive-highlight ${activeScenario === 'Adaptive Incident' ? 'selected' : ''}`}
-            id="btnScenarioAdaptive"
-            type="button"
-            onClick={() => onSelectScenario('Adaptive Incident')}
-            disabled={isRunning || disabled}
-          >
-            Adaptive Incident
-          </button>
+          {SCENARIOS.map(({ id, domId, className }) => {
+            const label = SCENARIO_LABELS[id];
+            return (
+              <button
+                key={id}
+                className={`btn-scenario ${className ?? ''} ${activeScenario === label ? 'selected' : ''}`}
+                id={domId}
+                type="button"
+                aria-pressed={activeScenario === label}
+                onClick={() => onSelectScenario(id)}
+                disabled={controlsDisabled}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
 
         <div className="action-group">
@@ -70,7 +64,7 @@ export const ScenarioSelector: React.FC<ScenarioSelectorProps> = ({
             id="btnReset"
             type="button"
             onClick={() => onReset()}
-            disabled={isRunning || disabled}
+            disabled={controlsDisabled}
           >
             Reset
           </button>
@@ -79,7 +73,7 @@ export const ScenarioSelector: React.FC<ScenarioSelectorProps> = ({
             id="btnRunIncident"
             type="button"
             onClick={() => onRunIncident()}
-            disabled={isRunning || disabled}
+            disabled={controlsDisabled}
           >
             {isRunning && (
               <span
@@ -90,7 +84,7 @@ export const ScenarioSelector: React.FC<ScenarioSelectorProps> = ({
                 &#9696;
               </span>
             )}
-            <span id="runLabel">{runLabel || 'Run Incident'}</span>
+            <span id="runLabel">{runLabel}</span>
           </button>
         </div>
       </div>
