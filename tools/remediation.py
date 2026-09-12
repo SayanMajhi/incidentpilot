@@ -71,7 +71,7 @@ def restart_service() -> Dict[str, Union[str, bool]]:
               happened. Deliberately does NOT claim the incident is
               resolved.
     """
-    service.simulate_recover()
+    service.simulate_recover(preserve_scenario=True)
 
     if service.adaptive_incident_active:
         service.simulate_adaptive_restart_effect()

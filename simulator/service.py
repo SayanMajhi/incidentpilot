@@ -1,10 +1,31 @@
+import os
+from datetime import datetime, timezone
+from threading import Lock
 from typing import Literal
-from fastapi import FastAPI
+
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 app = FastAPI(
     title="IncidentPilot Simulated Service",
     description="a deterministic,in_memory simulated production service",
     version="1.0.0",
+)
+
+allowed_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000",
+    ).split(",")
+    if origin.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Accept"],
 )
 #Constants,Keywords
 HEALTHY_STATUS: Literal["healthy"] = "healthy"
@@ -40,6 +61,7 @@ state:ServiceState = _initial_state()
 # Adaptive incident state
 adaptive_incident_active = False
 adaptive_restart_attempted = False
+active_scenario = "healthy"
 
 def simulate_adaptive_restart_effect() -> None:
     """
@@ -141,6 +163,11 @@ def simulate_outage() -> SimulationActionResponse:
         SimulationActionResponse:a confirmation message and the
         resulting service state.
     """
+    global active_scenario, last_incident_result, adaptive_incident_active, adaptive_restart_attempted
+    active_scenario = "generic_outage"
+    last_incident_result = None
+    adaptive_incident_active = False
+    adaptive_restart_attempted = False
     state.status = DOWN_STATUS
     state.error_rate = OUTAGE_ERROR_RATE
     state.latency_ms = OUTAGE_LATENCY_MS
@@ -151,7 +178,7 @@ def simulate_outage() -> SimulationActionResponse:
 
 
 @app.post("/simulate/recover", response_model=SimulationActionResponse)
-def simulate_recover() -> SimulationActionResponse:
+def simulate_recover(preserve_scenario: bool = False) -> SimulationActionResponse:
     """Restore the simulated service to its healthy baseline state
 
     resets status,error_rate,and latency_ms back
@@ -162,6 +189,12 @@ def simulate_recover() -> SimulationActionResponse:
         simulationActionResponse:a confirmation message and the
         resulting service state
     """
+    global active_scenario, last_incident_result, adaptive_incident_active, adaptive_restart_attempted
+    if not preserve_scenario:
+        active_scenario = "healthy"
+        last_incident_result = None
+        adaptive_incident_active = False
+        adaptive_restart_attempted = False
     state.status = HEALTHY_STATUS
     state.error_rate = HEALTHY_ERROR_RATE
     state.latency_ms = HEALTHY_LATENCY_MS
@@ -188,6 +221,11 @@ def simulate_bad_deployment() -> SimulationActionResponse:
         both the deployment and the resulting incident, and the
         resulting service state.
     """
+    global active_scenario, last_incident_result, adaptive_incident_active, adaptive_restart_attempted
+    active_scenario = "bad_deployment"
+    last_incident_result = None
+    adaptive_incident_active = False
+    adaptive_restart_attempted = False
     state.current_version = BAD_DEPLOYMENT_VERSION
     state.status = DOWN_STATUS
     state.error_rate = OUTAGE_ERROR_RATE
@@ -210,10 +248,12 @@ def simulate_adaptive_incident() -> SimulationActionResponse:
     but the underlying incident will remain unresolved. A later
     remediation strategy can then resolve the incident.
     """
-    global adaptive_incident_active, adaptive_restart_attempted
+    global adaptive_incident_active, adaptive_restart_attempted, active_scenario, last_incident_result
 
     adaptive_incident_active = True
     adaptive_restart_attempted = False
+    active_scenario = "adaptive_incident"
+    last_incident_result = None
 
     state.current_version = INITIAL_VERSION
     state.status = DOWN_STATUS
@@ -293,6 +333,23 @@ def simulate_rollback(version: str) -> SimulationActionResponse:
 
 # Stores the most recent IncidentPilot execution result.
 last_incident_result = None
+run_lock = Lock()
+run_state = {
+    "running": False,
+    "phase": "idle",
+    "attempt": 0,
+    "updated_at": None,
+    "details": {},
+}
+
+
+def _update_run_state(phase, details=None):
+    run_state.update({
+        "phase": phase,
+        "attempt": (details or {}).get("attempt", run_state.get("attempt", 0)),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "details": details or {},
+    })
 
 
 @app.post("/run-incident")
@@ -307,8 +364,16 @@ def run_incident():
     from agent.controller import controller
 
     global last_incident_result
+    if not run_lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="An incident run is already in progress.")
 
-    last_incident_result = controller.run_incident()
+    run_state.update({"running": True, "attempt": 0})
+    _update_run_state("observing")
+    try:
+        last_incident_result = controller.run_incident(on_event=_update_run_state)
+    finally:
+        run_state["running"] = False
+        run_lock.release()
 
     return {
         "status": last_incident_result.get("status"),
@@ -321,12 +386,22 @@ def get_incident_status():
     """
     Return the current simulated service state and latest agent result.
     """
+    from tools import diagnostics
+    from tools.remediation import get_current_replicas
+
     return {
         "service": {
             "status": state.status,
             "error_rate": state.error_rate,
             "latency_ms": state.latency_ms,
             "current_version": state.current_version,
+        },
+        "scenario": active_scenario,
+        "replicas": get_current_replicas(),
+        "agent": dict(run_state),
+        "diagnostics": {
+            "logs": diagnostics.query_logs(),
+            "deployment_history": diagnostics.get_deployment_history(),
         },
         "incident": last_incident_result,
     }
@@ -375,14 +450,30 @@ def reset_incident():
     """
     Reset the simulated service to its initial healthy state.
     """
-    global last_incident_result
+    from tools import remediation
+
+    global last_incident_result, adaptive_incident_active, adaptive_restart_attempted, active_scenario
+
+    if run_state["running"]:
+        raise HTTPException(status_code=409, detail="Cannot reset while an incident run is active.")
 
     state.status = HEALTHY_STATUS
     state.error_rate = HEALTHY_ERROR_RATE
     state.latency_ms = HEALTHY_LATENCY_MS
     state.current_version = INITIAL_VERSION
+    remediation._current_replicas = 1
+    adaptive_incident_active = False
+    adaptive_restart_attempted = False
+    active_scenario = "healthy"
 
     last_incident_result = None
+    run_state.update({
+        "running": False,
+        "phase": "idle",
+        "attempt": 0,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "details": {},
+    })
 
     return {
         "message": "IncidentPilot simulator reset.",

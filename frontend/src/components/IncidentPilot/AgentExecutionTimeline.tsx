@@ -3,6 +3,8 @@ import type { Attempt, ResolutionBanner } from '../../types/incidentPilot';
 
 const STEP_ICONS: Record<string, string> = {
   obs: '\uD83D\uDD0D',   // 🔍
+  inv: '\u2315',          // ⌕
+  diag: '\u25C8',         // ◈
   dec: '\uD83E\uDDE0',   // 🧠
   safe: '\uD83D\uDEE1',  // 🛡️
   act: '\u2699',         // ⚙️
@@ -92,7 +94,7 @@ export const AgentExecutionTimeline: React.FC<AgentExecutionTimelineProps> = ({
 
       {resolutionBanner.visible && (
         <div
-          className={`resolution-banner ${resolutionBanner.isResolved ? 'resolved' : ''}`}
+          className={`resolution-banner ${resolutionBanner.isResolved ? 'resolved' : 'escalated'}`}
           id="resolutionBanner"
           style={{ display: 'block' }}
         >

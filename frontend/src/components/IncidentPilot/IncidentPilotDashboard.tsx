@@ -10,6 +10,7 @@ import { AgentExecutionTimeline } from './AgentExecutionTimeline';
 import { TelemetryMonitor } from './TelemetryMonitor';
 import { InspectionSidebar } from './InspectionSidebar';
 import { Footer } from './Footer';
+import { LifecycleStrip } from './LifecycleStrip';
 
 interface IncidentPilotDashboardProps {
   initialBaseUrl?: string;
@@ -26,6 +27,7 @@ export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
     simState,
     currentReplicas,
     lastSyncTime,
+    activeScenario,
     triggerScenario,
     resetSystem,
     runIncident,
@@ -39,6 +41,7 @@ export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
     resolutionBanner,
     telemetryBuffer,
     logs,
+    operationError,
   } = useIncidentPilot(initialBaseUrl);
 
   const isOffline = connectionStatus === 'offline';
@@ -60,12 +63,26 @@ export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
         onRetry={() => checkConnection(false)}
       />
 
+      {operationError && (
+        <div className="operation-error" role="alert">
+          <span><strong>Operation failed.</strong> {operationError}</span>
+          <button type="button" onClick={() => checkConnection(false)}>Retry API</button>
+        </div>
+      )}
+
       <main className="dashboard-grid">
         {/* Live Service State HUD */}
         <TelemetryDashboard
           simState={simState}
           currentReplicas={currentReplicas}
           lastSyncTime={lastSyncTime}
+        />
+
+        <LifecycleStrip
+          service={simState}
+          attempts={attempts}
+          agentStatus={summary.agentStatus}
+          isRunning={isRunningAgent}
         />
 
         {/* Operational Controls and Scenario Selection */}
@@ -75,6 +92,8 @@ export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
           onRunIncident={runIncident}
           isRunning={isRunningAgent}
           runLabel={runLabel}
+          disabled={isOffline}
+          activeScenario={activeScenario}
         />
 
         {/* Axiom Banner: Action Success != Recovery */}

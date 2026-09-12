@@ -1,892 +1,188 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import * as api from '../services/incidentPilotApi';
 import type {
-  ServiceState,
-  TelemetryPoint,
-  IncidentSummary,
-  DecisionDetails,
-  SafetyState,
-  VerificationState,
-  Attempt,
-  ResolutionBanner,
-  LogEntry,
+  Attempt, BackendAttempt, IncidentResult, IncidentStatusResponse, IncidentSummary,
+  DecisionDetails, LogEntry, ResolutionBanner, SafetyState, ServiceState,
+  TelemetryPoint, VerificationState,
 } from '../types/incidentPilot';
 
 const MAX_SAMPLES = 40;
+const SCENARIO_LABELS: Record<string, string> = {
+  healthy: 'Normal / Healthy', generic_outage: 'Generic Outage',
+  bad_deployment: 'Bad Deployment', adaptive_incident: 'Adaptive Incident',
+};
+const emptySummary: IncidentSummary = { scenario: 'None', agentStatus: 'Idle', attempts: '0', finalAction: 'None', finalVerification: 'Pending', finalOutcome: 'None' };
+const emptyDecision: DecisionDetails = { source: 'none', action: 'None', target: 'None', confidence: '0%', reason: 'None' };
+const emptySafety: SafetyState = { status: 'UNCHECKED', action: 'None', verdict: 'Pending', reason: 'Awaiting check' };
+const emptyVerification: VerificationState = { status: 'UNVERIFIED', recovered: 'Pending', isRecoveredBool: null, reason: 'Pending', errorRate: '-', latency: '-', serviceStatus: '-' };
+
+function titleCase(value: string): string {
+  return value.replace(/_/g, ' ').replace(/\b\w/g, (letter: string) => letter.toUpperCase());
+}
+
+function formatTarget(target: string | number | null): string {
+  if (target === null || target === undefined) return 'None';
+  return typeof target === 'number' ? `${target} replicas` : String(target);
+}
+
+function mapAttempt(attempt: BackendAttempt, index: number, total: number): Attempt {
+  const { observations, detection, diagnosis, decision, safety_result, action_result, verification } = attempt;
+  const metrics = observations.metrics;
+  const signals = detection.signals.length ? detection.signals.map(titleCase).join(', ') : 'No SLO breaches';
+  const steps: Attempt['steps'] = [
+    { type: 'obs', label: 'Observe & Detect', details: `Fresh telemetry: ${metrics.status.toUpperCase()}, ${(metrics.error_rate * 100).toFixed(1)}% errors, ${metrics.latency_ms}ms latency. Signals: ${signals}.` },
+    { type: 'inv', label: 'Investigate', details: `Queried ${observations.logs.length} diagnostic log entries, deployment history, service health, and current version ${observations.current_version}.` },
+    { type: 'diag', label: 'Diagnose', details: `${titleCase(diagnosis.probable_cause)} — ${diagnosis.summary}` },
+    { type: 'dec', label: 'Decide', details: `Selected ${decision.action}${decision.target != null ? ` → ${formatTarget(decision.target)}` : ''} at ${(decision.confidence * 100).toFixed(0)}% confidence (${decision.source || 'deterministic'}).` },
+    { type: 'safe', label: 'Safety Check', details: safety_result.checked ? `Policy ${safety_result.allowed ? 'allowed' : 'blocked'} ${safety_result.action}.` : 'No remediation was proposed; a policy check was not required.', customClass: safety_result.allowed === false ? 'verification-failure' : undefined },
+    { type: 'act', label: action_result.action === 'escalate' ? 'Escalate' : 'Remediate', details: action_result.message, customClass: action_result.success ? undefined : 'verification-failure' },
+  ];
+  if (verification) {
+    steps.push({ type: 'ver', label: 'Verify Recovery', details: `${verification.reason}. Fresh telemetry confirms recovered=${verification.recovered ? 'true' : 'false'}.`, customClass: verification.recovered ? 'verification-success' : 'verification-failure' });
+    if (!verification.recovered && index < total - 1) {
+      steps.push({ type: 'adapt', label: 'Adapt & Re-investigate', details: 'Verification rejected the remediation outcome. The controller retained the failure evidence and began a fresh attempt.', customClass: 'adapt-callout' });
+    }
+  }
+  const succeeded = verification?.recovered === true;
+  return {
+    id: `attempt-${attempt.attempt}`, number: attempt.attempt, tag: `ATTEMPT ${attempt.attempt}`,
+    statusText: succeeded ? 'RECOVERED' : verification ? 'VERIFICATION FAILED' : action_result.status.toUpperCase(),
+    statusClass: succeeded ? 'success' : 'retry', steps,
+  };
+}
+
+function mapLogs(status: IncidentStatusResponse): LogEntry[] {
+  return status.diagnostics.logs.map((entry, index) => ({
+    id: `${entry.timestamp}-${index}`,
+    time: entry.timestamp.includes('T') ? entry.timestamp.slice(11, 19) : entry.timestamp,
+    level: entry.level === 'ERROR' ? 'ERROR' : entry.level === 'WARNING' ? 'WARNING' : 'INFO',
+    message: entry.message,
+  }));
+}
 
 export function useIncidentPilot(initialBaseUrl = api.DEFAULT_BASE_URL) {
-  const [backendUrl, setBackendUrl] = useState<string>(initialBaseUrl);
-  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'offline' | 'checking'>('offline');
-  const isBackendAliveRef = useRef<boolean>(false);
-
-  // In-memory simulation fallback state
-  const [simState, setSimState] = useState<ServiceState>({
-    status: 'healthy',
-    error_rate: 0.01,
-    latency_ms: 100,
-    current_version: 'v41',
-  });
-  const simStateRef = useRef<ServiceState>(simState);
-  simStateRef.current = simState;
-
-  const [currentReplicas, setCurrentReplicas] = useState<number>(1);
-  const [activeScenario, setActiveScenario] = useState<string>('None');
-  const [lastSyncTime, setLastSyncTime] = useState<string>('Sync: Initializing');
-  const [isLiveSync, setIsLiveSync] = useState<boolean>(false);
-
-  // Running agent execution status
-  const [isRunningAgent, setIsRunningAgent] = useState<boolean>(false);
-  const [runLabel, setRunLabel] = useState<string>('Run Incident');
-
-  // Summary state
-  const [summary, setSummary] = useState<IncidentSummary>({
-    scenario: 'None',
-    agentStatus: 'Idle',
-    attempts: '0',
-    finalAction: 'None',
-    finalVerification: 'Pending',
-    finalOutcome: 'None',
-  });
-
-  // Decision details
-  const [decision, setDecision] = useState<DecisionDetails>({
-    source: 'none',
-    action: 'None',
-    target: 'None',
-    confidence: '0%',
-    reason: 'None',
-  });
-
-  // Safety engine
-  const [safety, setSafety] = useState<SafetyState>({
-    status: 'UNCHECKED',
-    action: 'None',
-    verdict: 'Pending',
-    reason: 'Awaiting check',
-  });
-
-  // Verification engine
-  const [verification, setVerification] = useState<VerificationState>({
-    status: 'UNVERIFIED',
-    recovered: 'Pending',
-    isRecoveredBool: null,
-    reason: 'Pending',
-    errorRate: '-',
-    latency: '-',
-    serviceStatus: '-',
-  });
-
-  // Timeline attempts list
+  const [backendUrl, setBackendUrl] = useState(api.normalizeBaseUrl(initialBaseUrl));
+  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'offline' | 'checking'>('checking');
+  const [simState, setSimState] = useState<ServiceState>({ status: 'unknown', error_rate: 0, latency_ms: 0, current_version: '—' });
+  const [currentReplicas, setCurrentReplicas] = useState(0);
+  const [lastSyncTime, setLastSyncTime] = useState('Connecting to live API…');
+  const [activeScenario, setActiveScenario] = useState('None');
+  const [isRunningAgent, setIsRunningAgent] = useState(false);
+  const [runLabel, setRunLabel] = useState('Run Incident');
+  const [operationError, setOperationError] = useState<string | null>(null);
+  const [summary, setSummary] = useState(emptySummary);
+  const [decision, setDecision] = useState(emptyDecision);
+  const [safety, setSafety] = useState(emptySafety);
+  const [verification, setVerification] = useState(emptyVerification);
   const [attempts, setAttempts] = useState<Attempt[]>([]);
-  const [resolutionBanner, setResolutionBanner] = useState<ResolutionBanner>({
-    visible: false,
-    text: '',
-    isResolved: false,
-  });
-
-  // Telemetry buffer for chart (40 samples)
-  const [telemetryBuffer, setTelemetryBuffer] = useState<TelemetryPoint[]>(() => {
-    const initial: TelemetryPoint[] = [];
-    for (let i = 0; i < MAX_SAMPLES; i++) {
-      initial.push({ errorRate: 0.01, latency: 100, status: 'healthy' });
-    }
-    return initial;
-  });
-
-  // Diagnostic Logs
+  const [resolutionBanner, setResolutionBanner] = useState<ResolutionBanner>({ visible: false, text: '', isResolved: false });
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [telemetryBuffer, setTelemetryBuffer] = useState<TelemetryPoint[]>([]);
 
-  const addLog = useCallback((level: 'INFO' | 'WARNING' | 'ERROR', message: string) => {
-    const time = new Date().toTimeString().split(' ')[0];
-    setLogs((prev) => [
-      { id: Math.random().toString(36).substr(2, 9), time, level, message },
-      ...prev,
-    ]);
-  }, []);
-
-  const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
-
-  // Update telemetry helper
-  const updateTelemetryData = useCallback(
-    (data: Partial<ServiceState>, isLive = true) => {
-      setSimState((prev) => ({
-        ...prev,
-        status: data.status || prev.status,
-        error_rate: typeof data.error_rate === 'number' ? data.error_rate : prev.error_rate,
-        latency_ms: typeof data.latency_ms === 'number' ? data.latency_ms : prev.latency_ms,
-        current_version: data.current_version || prev.current_version,
-      }));
-
-      const timeStr = new Date().toLocaleTimeString();
-      setLastSyncTime(isLive ? `Live Sync: ${timeStr}` : `Local Sync: ${timeStr}`);
-      setIsLiveSync(isLive);
-    },
-    []
-  );
-
-  // Fetch live telemetry from FastAPI backend
-  const fetchLiveTelemetry = useCallback(
-    async (url = backendUrl) => {
-      if (!isBackendAliveRef.current) return;
-      try {
-        const [metrics, version] = await Promise.all([
-          api.fetchMetrics(url),
-          api.fetchVersion(url),
-        ]);
-        updateTelemetryData(
-          {
-            status: metrics.status,
-            error_rate: metrics.error_rate,
-            latency_ms: metrics.latency_ms,
-            current_version: version.current_version,
-          },
-          true
-        );
-      } catch (e) {
-        console.warn('Live telemetry sync failed:', e);
-      }
-    },
-    [backendUrl, updateTelemetryData]
-  );
-
-  // Connectivity check
-  const checkConnection = useCallback(
-    async (silent = false, customUrl?: string) => {
-      const url = api.normalizeBaseUrl(customUrl || backendUrl);
-      if (!silent) {
-        setConnectionStatus('checking');
-      }
-      try {
-        await api.checkHealth(url);
-        isBackendAliveRef.current = true;
-        setConnectionStatus('connected');
-        await fetchLiveTelemetry(url);
-        return true;
-      } catch (e) {
-        isBackendAliveRef.current = false;
-        setConnectionStatus('offline');
-        updateTelemetryData(
-          {
-            status: simStateRef.current.status,
-            error_rate: simStateRef.current.error_rate,
-            latency_ms: simStateRef.current.latency_ms,
-            current_version: simStateRef.current.current_version,
-          },
-          false
-        );
-        return false;
-      }
-    },
-    [backendUrl, fetchLiveTelemetry, updateTelemetryData]
-  );
-
-  // Telemetry buffer sampler (1000ms cadence)
-  const sampleTelemetry = useCallback(() => {
-    const current = simStateRef.current;
-    const err = typeof current.error_rate === 'number' ? current.error_rate : 0.01;
-    const lat = typeof current.latency_ms === 'number' ? current.latency_ms : 100;
-    const st = current.status || 'healthy';
-
-    setTelemetryBuffer((prev) => {
-      const next = [...prev, { errorRate: err, latency: lat, status: st }];
-      if (next.length > MAX_SAMPLES) {
-        next.shift();
-      }
-      return next;
-    });
-  }, []);
-
-  // Scenario trigger
-  const triggerScenario = useCallback(
-    async (type: string) => {
-      setActiveScenario(type);
-      setSummary((prev) => ({
-        ...prev,
-        scenario: type,
-        agentStatus: 'Incident Active',
-        finalOutcome: 'Pending',
-      }));
-      setResolutionBanner({ visible: false, text: '', isResolved: false });
-
-      if (type === 'Normal / Healthy') {
-        if (isBackendAliveRef.current) {
-          try {
-            await api.simulateRecover(backendUrl);
-            await fetchLiveTelemetry(backendUrl);
-            addLog('INFO', 'Simulated recovery applied on FastAPI service.');
-          } catch (e) {
-            addLog('WARNING', 'Failed to reach FastAPI, updating locally.');
-          }
-        }
-        setCurrentReplicas(1);
-        updateTelemetryData(
-          {
-            status: 'healthy',
-            error_rate: 0.01,
-            latency_ms: 100,
-            current_version: 'v41',
-          },
-          isBackendAliveRef.current
-        );
-        addLog('INFO', 'System restored to baseline healthy state.');
-        return;
-      }
-
-      if (type === 'Generic Outage') {
-        if (isBackendAliveRef.current) {
-          try {
-            await api.simulateOutage(backendUrl);
-            await fetchLiveTelemetry(backendUrl);
-            addLog('ERROR', 'Outage simulated on FastAPI service: 70% errors, 1000ms latency.');
-          } catch (e) {
-            addLog('WARNING', 'Outage simulated locally.');
-          }
-        }
-        updateTelemetryData(
-          {
-            status: 'down',
-            error_rate: 0.7,
-            latency_ms: 1000,
-          },
-          isBackendAliveRef.current
-        );
-        addLog('ERROR', 'Alert triggered: Error rate 70% exceeds threshold 10%.');
-        addLog('WARNING', 'Latency 1000ms breached SLA threshold (300ms).');
-        return;
-      }
-
-      if (type === 'Bad Deployment') {
-        if (isBackendAliveRef.current) {
-          try {
-            await api.simulateBadDeployment(backendUrl);
-            await fetchLiveTelemetry(backendUrl);
-            addLog('ERROR', 'FastAPI bad-deployment applied: deployed v42.');
-          } catch (e) {
-            addLog('WARNING', 'Bad deployment simulated locally.');
-          }
-        }
-        updateTelemetryData(
-          {
-            status: 'down',
-            error_rate: 0.7,
-            latency_ms: 1000,
-            current_version: 'v42',
-          },
-          isBackendAliveRef.current
-        );
-        addLog('ERROR', 'Deployment v42 introduced application failures.');
-        addLog('ERROR', 'HTTP 503 responses increased after deployment v42.');
-        return;
-      }
-
-      if (type === 'Adaptive Incident') {
-        if (isBackendAliveRef.current) {
-          try {
-            await api.simulateBadDeployment(backendUrl);
-            await fetchLiveTelemetry(backendUrl);
-          } catch (e) {}
-        }
-        updateTelemetryData(
-          {
-            status: 'down',
-            error_rate: 0.7,
-            latency_ms: 1000,
-            current_version: 'v42',
-          },
-          isBackendAliveRef.current
-        );
-        addLog(
-          'ERROR',
-          'Complex incident initialized: Deployment v42 active with elevated error rate.'
-        );
-        addLog(
-          'WARNING',
-          'Diagnostic evidence suggests potential resource saturation alongside deployment logs.'
-        );
-        return;
-      }
-    },
-    [backendUrl, fetchLiveTelemetry, updateTelemetryData, addLog]
-  );
-
-  // Reset system
-  const resetSystem = useCallback(async () => {
-    setActiveScenario('None');
-    setCurrentReplicas(1);
-
+  const applyIncident = useCallback((result: IncidentResult | null, service: ServiceState, scenario: string) => {
+    if (!result) {
+      setSummary({ ...emptySummary, scenario: SCENARIO_LABELS[scenario] || titleCase(scenario) });
+      setDecision(emptyDecision); setSafety(emptySafety); setVerification(emptyVerification);
+      setAttempts([]); setResolutionBanner({ visible: false, text: '', isResolved: false });
+      return;
+    }
+    const finalAttempt = result.attempts.at(-1);
+    if (!finalAttempt) return;
+    const recovered = result.status === 'resolved';
     setSummary({
-      scenario: 'None',
-      agentStatus: 'Idle',
-      attempts: '0',
-      finalAction: 'None',
-      finalVerification: 'Pending',
-      finalOutcome: 'None',
+      scenario: SCENARIO_LABELS[scenario] || titleCase(scenario), agentStatus: titleCase(result.status),
+      attempts: String(result.attempts.length), finalAction: result.decision.action,
+      finalVerification: result.verification ? (result.verification.recovered ? 'Recovered' : 'Failed') : 'Not run',
+      finalOutcome: result.status.toUpperCase(),
     });
-
-    setDecision({
-      source: 'none',
-      action: 'None',
-      target: 'None',
-      confidence: '0%',
-      reason: 'None',
-    });
-
+    setDecision({ source: result.decision.source || 'deterministic', action: result.decision.action, target: formatTarget(result.decision.target), confidence: `${(result.decision.confidence * 100).toFixed(0)}%`, reason: result.decision.reason });
     setSafety({
-      status: 'UNCHECKED',
-      action: 'None',
-      verdict: 'Pending',
-      reason: 'Awaiting check',
+      status: finalAttempt.safety_result.checked ? (finalAttempt.safety_result.allowed ? 'ALLOWED' : 'BLOCKED') : 'NOT REQUIRED',
+      action: finalAttempt.safety_result.action,
+      verdict: finalAttempt.safety_result.checked ? (finalAttempt.safety_result.allowed ? 'ALLOWED' : 'BLOCKED') : 'SKIPPED',
+      reason: finalAttempt.safety_result.checked ? 'Deterministic policy gate evaluated the proposed action before execution.' : 'The agent escalated without executing remediation.',
     });
+    setVerification(result.verification ? {
+      status: result.verification.recovered ? 'VERIFIED' : 'FAILED', recovered: result.verification.recovered ? 'YES' : 'NO',
+      isRecoveredBool: result.verification.recovered, reason: result.verification.reason,
+      errorRate: `${(service.error_rate * 100).toFixed(1)}%`, latency: `${service.latency_ms}ms`, serviceStatus: service.status.toUpperCase(),
+    } : { ...emptyVerification, status: 'NOT RUN', reason: 'No remediation required or execution was blocked.' });
+    setAttempts(result.attempts.map((attempt, index) => mapAttempt(attempt, index, result.attempts.length)));
+    setResolutionBanner({ visible: true, text: recovered ? 'INCIDENT RECOVERED — VERIFIED AGAINST LIVE TELEMETRY' : `INCIDENT ${result.status.toUpperCase()}`, isResolved: recovered });
+  }, []);
 
-    setVerification({
-      status: 'UNVERIFIED',
-      recovered: 'Pending',
-      isRecoveredBool: null,
-      reason: 'Pending',
-      errorRate: '-',
-      latency: '-',
-      serviceStatus: '-',
-    });
+  const applyStatus = useCallback((status: IncidentStatusResponse) => {
+    setSimState(status.service); setCurrentReplicas(status.replicas);
+    setActiveScenario(SCENARIO_LABELS[status.scenario] || titleCase(status.scenario));
+    setLogs(mapLogs(status)); setLastSyncTime(`Live API · ${new Date().toLocaleTimeString()}`);
+    applyIncident(status.incident, status.service, status.scenario);
+  }, [applyIncident]);
 
-    setAttempts([]);
-    setResolutionBanner({ visible: false, text: '', isResolved: false });
-
-    if (isBackendAliveRef.current) {
-      try {
-        await api.simulateRecover(backendUrl);
-        await api.simulateRollback(backendUrl, 'v41');
-        await fetchLiveTelemetry(backendUrl);
-        addLog('INFO', 'System reset to clean baseline on FastAPI service.');
-      } catch (e) {
-        addLog('WARNING', 'Reset completed locally.');
-      }
+  const fetchLiveStatus = useCallback(async (url = backendUrl, quiet = true) => {
+    try {
+      const status = await api.fetchStatus(url);
+      setConnectionStatus('connected'); applyStatus(status); setOperationError(null);
+      return status;
+    } catch (error) {
+      setConnectionStatus('offline'); setLastSyncTime('Stale · API unavailable');
+      if (!quiet) setOperationError(error instanceof Error ? error.message : 'Backend request failed.');
+      return null;
     }
+  }, [backendUrl, applyStatus]);
 
-    updateTelemetryData(
-      {
-        status: 'healthy',
-        error_rate: 0.01,
-        latency_ms: 100,
-        current_version: 'v41',
-      },
-      isBackendAliveRef.current
-    );
-    addLog('INFO', 'System reset to clean healthy baseline.');
-  }, [backendUrl, fetchLiveTelemetry, updateTelemetryData, addLog]);
+  const checkConnection = useCallback(async (_silent = false, customUrl?: string) => {
+    const url = api.normalizeBaseUrl(customUrl || backendUrl);
+    setConnectionStatus('checking');
+    return Boolean(await fetchLiveStatus(url, false));
+  }, [backendUrl, fetchLiveStatus]);
 
-  // Workflow implementations
-  const runAdaptiveWorkflow = async () => {
-    setSummary((prev) => ({ ...prev, attempts: '2' }));
+  const triggerScenario = useCallback(async (type: string) => {
+    if (isRunningAgent) return;
+    setIsRunningAgent(true); setOperationError(null);
+    try {
+      await api.resetIncident(backendUrl);
+      if (type === 'Generic Outage') await api.simulateOutage(backendUrl);
+      else if (type === 'Bad Deployment') await api.simulateBadDeployment(backendUrl);
+      else if (type === 'Adaptive Incident') await api.simulateAdaptiveIncident(backendUrl);
+      await fetchLiveStatus(backendUrl, false);
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : 'Could not activate scenario.');
+      await fetchLiveStatus(backendUrl);
+    } finally { setIsRunningAgent(false); }
+  }, [backendUrl, fetchLiveStatus, isRunningAgent]);
 
-    const attempt1: Attempt = {
-      id: 'attempt-1',
-      number: 1,
-      tag: 'ATTEMPT 1',
-      statusText: 'RUNNING',
-      statusClass: 'running',
-      steps: [],
-    };
-    setAttempts([attempt1]);
-
-    await sleep(500);
-    attempt1.steps.push({
-      type: 'obs',
-      label: 'Observe',
-      details:
-        'Service status: DOWN | Error rate: 70.0% | Latency: 1000ms | Logs indicate connection timeouts and thread contention.',
-    });
-    setAttempts([{ ...attempt1, steps: [...attempt1.steps] }]);
-    addLog('INFO', '[Attempt 1] Observations collected: Error rate 70%, Latency 1000ms.');
-
-    await sleep(600);
-    setDecision({
-      source: 'deterministic',
-      action: 'scale_service',
-      target: '4 replicas',
-      confidence: '78%',
-      reason:
-        'Initial log parsing detected connection timeouts and thread pool contention; scaling service to absorb load.',
-    });
-    attempt1.steps.push({
-      type: 'dec',
-      label: 'Decision Engine',
-      details:
-        'Recommended action: Scale service to 4 replicas (Confidence: 78%, Source: deterministic).',
-    });
-    setAttempts([{ ...attempt1, steps: [...attempt1.steps] }]);
-    addLog('INFO', '[Attempt 1] Decision engine selected action: scale_service to 4 replicas.');
-
-    await sleep(500);
-    setSafety({
-      status: 'ALLOWED',
-      action: 'scale_service',
-      verdict: 'ALLOWED',
-      reason: 'Target replica count 4 is within safety envelope [1, 10]. Approved for execution.',
-    });
-    attempt1.steps.push({
-      type: 'safe',
-      label: 'Safety Check',
-      details: 'Safety Policy approved: 4 replicas is within safe range [1, 10].',
-    });
-    setAttempts([{ ...attempt1, steps: [...attempt1.steps] }]);
-    addLog('INFO', '[Attempt 1] Safety check passed: scale_service approved.');
-
-    await sleep(600);
-    setCurrentReplicas(4);
-    attempt1.steps.push({
-      type: 'act',
-      label: 'Remediation Action',
-      details: 'Action executed: Scaled replica pool to 4 pods. Command returned success status.',
-    });
-    setAttempts([{ ...attempt1, steps: [...attempt1.steps] }]);
-    addLog('INFO', '[Attempt 1] Remediation executed: Scaled to 4 replicas.');
-
-    await sleep(800);
-    setVerification({
-      status: 'FAILED',
-      recovered: 'NO',
-      isRecoveredBool: false,
-      reason: 'Service metrics are still unhealthy: Error rate remains 70%, Latency 1000ms.',
-      errorRate: '70.0%',
-      latency: '1000ms',
-      serviceStatus: 'DOWN',
-    });
-    attempt1.steps.push({
-      type: 'ver',
-      label: 'Telemetry Verification',
-      details: 'Failed: Service metrics are still unhealthy (Error rate: 70%, Latency: 1000ms).',
-      customClass: 'verification-failure',
-    });
-    setAttempts([{ ...attempt1, steps: [...attempt1.steps] }]);
-    addLog('ERROR', '[Attempt 1] Verification FAILED: Scaling succeeded but metrics remained down!');
-
-    await sleep(500);
-    attempt1.steps.push({
-      type: 'adapt',
-      label: 'Adaptation Loop',
-      details:
-        'Action success is not incident recovery. Primary remediation failed to restore health. Initiating secondary investigation.',
-      customClass: 'adapt-callout',
-    });
-    attempt1.statusText = 'FAILED (VERIFICATION REJECTED)';
-    attempt1.statusClass = 'retry';
-    setAttempts([{ ...attempt1, steps: [...attempt1.steps] }]);
-    addLog(
-      'WARNING',
-      '[Attempt 1] Adaptation triggered: Discarding false resolution hypothesis, starting Attempt 2.'
-    );
-
-    await sleep(700);
-    const attempt2: Attempt = {
-      id: 'attempt-2',
-      number: 2,
-      tag: 'ATTEMPT 2',
-      statusText: 'RUNNING',
-      statusClass: 'running',
-      steps: [],
-    };
-    setAttempts([attempt1, attempt2]);
-
-    await sleep(600);
-    attempt2.steps.push({
-      type: 'obs',
-      label: 'Observe (Re-investigation)',
-      details:
-        'Deep inspection of deployment history: Detected recent canary promotion to v42 matching incident inception timestamp.',
-    });
-    setAttempts([attempt1, { ...attempt2, steps: [...attempt2.steps] }]);
-    addLog(
-      'INFO',
-      '[Attempt 2] Fresh investigation revealed deployment correlation: v42 identified as root cause.'
-    );
-
-    await sleep(600);
-    setDecision({
-      source: 'deterministic',
-      action: 'rollback_deployment',
-      target: 'v41',
-      confidence: '94%',
-      reason:
-        'Logs confirm HTTP 503 surge correlated with v42 release. Deployment history confirms v41 as previous stable version.',
-    });
-    attempt2.steps.push({
-      type: 'dec',
-      label: 'Decision Engine (Adapted)',
-      details:
-        'Recommended action: Rollback deployment to v41 (Confidence: 94%, Source: deterministic).',
-    });
-    setAttempts([attempt1, { ...attempt2, steps: [...attempt2.steps] }]);
-    addLog('INFO', '[Attempt 2] Decision engine adapted: Initiating rollback to v41.');
-
-    await sleep(500);
-    setSafety({
-      status: 'ALLOWED',
-      action: 'rollback_deployment',
-      verdict: 'ALLOWED',
-      reason: 'Target version v41 confirmed in verified deployment history. Approved for execution.',
-    });
-    attempt2.steps.push({
-      type: 'safe',
-      label: 'Safety Check',
-      details: 'Safety Policy approved: v41 verified in historical release manifest.',
-    });
-    setAttempts([attempt1, { ...attempt2, steps: [...attempt2.steps] }]);
-    addLog('INFO', '[Attempt 2] Safety check passed: rollback_deployment approved.');
-
-    await sleep(700);
-    if (isBackendAliveRef.current) {
-      try {
-        await api.simulateRollback(backendUrl, 'v41');
-      } catch (e) {}
-    }
-    setSimState((prev) => ({ ...prev, current_version: 'v41' }));
-    attempt2.steps.push({
-      type: 'act',
-      label: 'Remediation Action',
-      details: 'Action executed: Rolled back deployment to v41. Service binary repointed.',
-    });
-    setAttempts([attempt1, { ...attempt2, steps: [...attempt2.steps] }]);
-    addLog('INFO', '[Attempt 2] Rollback executed: Rolled back to v41.');
-
-    await sleep(800);
-    if (isBackendAliveRef.current) {
-      await fetchLiveTelemetry(backendUrl);
-    } else {
-      updateTelemetryData(
-        {
-          status: 'healthy',
-          error_rate: 0.01,
-          latency_ms: 100,
-          current_version: 'v41',
-        },
-        false
-      );
-    }
-
-    setVerification({
-      status: 'VERIFIED',
-      recovered: 'YES',
-      isRecoveredBool: true,
-      reason: 'Service metrics are healthy: Error rate normalized to 1.0%, Latency 100ms.',
-      errorRate: '1.0%',
-      latency: '100ms',
-      serviceStatus: 'HEALTHY',
-    });
-    attempt2.steps.push({
-      type: 'ver',
-      label: 'Telemetry Verification',
-      details:
-        'Verified: Service metrics are healthy (Error rate: 1.0%, Latency: 100ms). Baseline restored.',
-      customClass: 'verification-success',
-    });
-    attempt2.statusText = 'RECOVERED';
-    attempt2.statusClass = 'success';
-    setAttempts([attempt1, { ...attempt2, steps: [...attempt2.steps] }]);
-    addLog('INFO', '[Attempt 2] Verification SUCCEEDED: Telemetry confirmed healthy.');
-
-    setSummary((prev) => ({
-      ...prev,
-      agentStatus: 'Resolved',
-      finalAction: 'rollback_deployment -> v41',
-      finalVerification: 'Recovered (healthy metrics)',
-      finalOutcome: 'RESOLVED',
-    }));
-
-    setResolutionBanner({
-      visible: true,
-      text: 'INCIDENT RESOLVED (VERIFIED BY SERVICE METRICS)',
-      isResolved: true,
-    });
-    addLog('INFO', 'INCIDENT RESOLVED: Autonomous adaptive loop complete.');
-  };
-
-  const runSingleRollbackWorkflow = async () => {
-    setSummary((prev) => ({ ...prev, attempts: '1' }));
-    const attempt1: Attempt = {
-      id: 'attempt-1',
-      number: 1,
-      tag: 'ATTEMPT 1',
-      statusText: 'RUNNING',
-      statusClass: 'running',
-      steps: [],
-    };
-    setAttempts([attempt1]);
-
-    await sleep(500);
-    attempt1.steps.push({
-      type: 'obs',
-      label: 'Observe',
-      details: 'Service status: DOWN | Error rate: 70.0% | Latency: 1000ms | Version: v42.',
-    });
-    setAttempts([{ ...attempt1, steps: [...attempt1.steps] }]);
-    addLog('INFO', '[Attempt 1] Collected metrics and log evidence on v42.');
-
-    await sleep(600);
-    setDecision({
-      source: 'deterministic',
-      action: 'rollback_deployment',
-      target: 'v41',
-      confidence: '92%',
-      reason: 'Application error after deployment of v42. Prior known stable version is v41.',
-    });
-    attempt1.steps.push({
-      type: 'dec',
-      label: 'Decision Engine',
-      details: 'Action: Rollback deployment to v41 (Confidence: 92%).',
-    });
-    setAttempts([{ ...attempt1, steps: [...attempt1.steps] }]);
-
-    await sleep(500);
-    setSafety({
-      status: 'ALLOWED',
-      action: 'rollback_deployment',
-      verdict: 'ALLOWED',
-      reason: 'Target v41 exists in release history. Action allowed.',
-    });
-    attempt1.steps.push({
-      type: 'safe',
-      label: 'Safety Check',
-      details: 'Safety Policy: Action allowed.',
-    });
-    setAttempts([{ ...attempt1, steps: [...attempt1.steps] }]);
-
-    await sleep(600);
-    if (isBackendAliveRef.current) {
-      try {
-        await api.simulateRollback(backendUrl, 'v41');
-        await fetchLiveTelemetry(backendUrl);
-      } catch (e) {}
-    } else {
-      updateTelemetryData(
-        {
-          status: 'healthy',
-          error_rate: 0.01,
-          latency_ms: 100,
-          current_version: 'v41',
-        },
-        false
-      );
-    }
-    attempt1.steps.push({
-      type: 'act',
-      label: 'Remediation Action',
-      details: 'Executed: Rolled back to v41.',
-    });
-    setAttempts([{ ...attempt1, steps: [...attempt1.steps] }]);
-
-    await sleep(800);
-    setVerification({
-      status: 'VERIFIED',
-      recovered: 'YES',
-      isRecoveredBool: true,
-      reason: 'Service metrics are healthy.',
-      errorRate: '1.0%',
-      latency: '100ms',
-      serviceStatus: 'HEALTHY',
-    });
-    attempt1.steps.push({
-      type: 'ver',
-      label: 'Telemetry Verification',
-      details: 'Verified: Service metrics are healthy.',
-      customClass: 'verification-success',
-    });
-    attempt1.statusText = 'RECOVERED';
-    attempt1.statusClass = 'success';
-    setAttempts([{ ...attempt1, steps: [...attempt1.steps] }]);
-
-    setSummary((prev) => ({
-      ...prev,
-      agentStatus: 'Resolved',
-      finalAction: 'rollback_deployment -> v41',
-      finalVerification: 'Recovered',
-      finalOutcome: 'RESOLVED',
-    }));
-    setResolutionBanner({
-      visible: true,
-      text: 'INCIDENT RESOLVED',
-      isResolved: true,
-    });
-    addLog('INFO', 'Incident resolved cleanly via single rollback pass.');
-  };
-
-  const runStandardOutageWorkflow = async () => {
-    setSummary((prev) => ({ ...prev, attempts: '1' }));
-    const attempt1: Attempt = {
-      id: 'attempt-1',
-      number: 1,
-      tag: 'ATTEMPT 1',
-      statusText: 'RUNNING',
-      statusClass: 'running',
-      steps: [],
-    };
-    setAttempts([attempt1]);
-
-    await sleep(500);
-    attempt1.steps.push({
-      type: 'obs',
-      label: 'Observe',
-      details:
-        'Service status: DOWN | Error rate: 70.0% | Latency: 1000ms | No deployment changes detected.',
-    });
-    setAttempts([{ ...attempt1, steps: [...attempt1.steps] }]);
-    addLog('INFO', '[Attempt 1] Observed generic service degradation without version triggers.');
-
-    await sleep(600);
-    setDecision({
-      source: 'deterministic',
-      action: 'restart_service',
-      target: 'simulated_service',
-      confidence: '85%',
-      reason:
-        'Transient socket degradation observed; attempting service restart to reset active threads.',
-    });
-    attempt1.steps.push({
-      type: 'dec',
-      label: 'Decision Engine',
-      details: 'Action: Restart service (Confidence: 85%).',
-    });
-    setAttempts([{ ...attempt1, steps: [...attempt1.steps] }]);
-
-    await sleep(500);
-    setSafety({
-      status: 'ALLOWED',
-      action: 'restart_service',
-      verdict: 'ALLOWED',
-      reason: 'Service restart permitted by SRE safety policy.',
-    });
-    attempt1.steps.push({
-      type: 'safe',
-      label: 'Safety Check',
-      details: 'Safety Policy: Action allowed.',
-    });
-    setAttempts([{ ...attempt1, steps: [...attempt1.steps] }]);
-
-    await sleep(600);
-    if (isBackendAliveRef.current) {
-      try {
-        await api.simulateRecover(backendUrl);
-        await fetchLiveTelemetry(backendUrl);
-      } catch (e) {}
-    } else {
-      updateTelemetryData(
-        {
-          status: 'healthy',
-          error_rate: 0.01,
-          latency_ms: 100,
-        },
-        false
-      );
-    }
-    attempt1.steps.push({
-      type: 'act',
-      label: 'Remediation Action',
-      details: 'Executed: Restart command applied.',
-    });
-    setAttempts([{ ...attempt1, steps: [...attempt1.steps] }]);
-
-    await sleep(800);
-    setVerification({
-      status: 'VERIFIED',
-      recovered: 'YES',
-      isRecoveredBool: true,
-      reason: 'Service metrics returned to baseline healthy range.',
-      errorRate: '1.0%',
-      latency: '100ms',
-      serviceStatus: 'HEALTHY',
-    });
-    attempt1.steps.push({
-      type: 'ver',
-      label: 'Telemetry Verification',
-      details: 'Verified: Service metrics are healthy.',
-      customClass: 'verification-success',
-    });
-    attempt1.statusText = 'RECOVERED';
-    attempt1.statusClass = 'success';
-    setAttempts([{ ...attempt1, steps: [...attempt1.steps] }]);
-
-    setSummary((prev) => ({
-      ...prev,
-      agentStatus: 'Resolved',
-      finalAction: 'restart_service',
-      finalVerification: 'Recovered',
-      finalOutcome: 'RESOLVED',
-    }));
-    setResolutionBanner({
-      visible: true,
-      text: 'INCIDENT RESOLVED',
-      isResolved: true,
-    });
-    addLog('INFO', 'Generic outage resolved via service restart.');
-  };
+  const resetSystem = useCallback(async () => {
+    if (isRunningAgent) return;
+    setIsRunningAgent(true); setOperationError(null);
+    try { await api.resetIncident(backendUrl); await fetchLiveStatus(backendUrl, false); }
+    catch (error) { setOperationError(error instanceof Error ? error.message : 'Reset failed.'); }
+    finally { setIsRunningAgent(false); }
+  }, [backendUrl, fetchLiveStatus, isRunningAgent]);
 
   const runIncident = useCallback(async () => {
-    setIsRunningAgent(true);
-    setRunLabel('Running Agent...');
-    setSummary((prev) => ({ ...prev, agentStatus: 'Investigating...' }));
-    setAttempts([]);
-    setResolutionBanner({ visible: false, text: '', isResolved: false });
+    if (isRunningAgent) return;
+    setIsRunningAgent(true); setRunLabel('Agent running…'); setOperationError(null);
+    setSummary((current) => ({ ...current, agentStatus: 'Observing live state…', finalOutcome: 'Running' }));
+    try { await api.runIncident(backendUrl); await fetchLiveStatus(backendUrl, false); }
+    catch (error) { setOperationError(error instanceof Error ? error.message : 'Incident run failed.'); await fetchLiveStatus(backendUrl); }
+    finally { setIsRunningAgent(false); setRunLabel('Run Incident'); }
+  }, [backendUrl, fetchLiveStatus, isRunningAgent]);
 
-    addLog('INFO', 'IncidentPilot agent dispatched: Beginning Observe phase.');
-
-    const isAdaptive = activeScenario === 'Adaptive Incident';
-    const isBadDeploy =
-      activeScenario === 'Bad Deployment' || simStateRef.current.current_version === 'v42';
-
-    if (isAdaptive) {
-      await runAdaptiveWorkflow();
-    } else if (isBadDeploy) {
-      await runSingleRollbackWorkflow();
-    } else {
-      await runStandardOutageWorkflow();
-    }
-
-    setIsRunningAgent(false);
-    setRunLabel('Run Incident');
-  }, [activeScenario, backendUrl, addLog]);
-
-  // Timers on mount
   useEffect(() => {
-    checkConnection(false);
-    sampleTelemetry();
-    addLog('INFO', 'IncidentPilot Dashboard (React Template 15) initialized and ready.');
+    void checkConnection(false);
+    const poll = window.setInterval(() => void fetchLiveStatus(backendUrl), 2000);
+    return () => window.clearInterval(poll);
+  }, [backendUrl, checkConnection, fetchLiveStatus]);
 
-    const heartbeatTimer = setInterval(() => {
-      checkConnection(true);
-    }, 5000);
-
-    const telemetryTimer = setInterval(() => {
-      sampleTelemetry();
-    }, 1000);
-
-    return () => {
-      clearInterval(heartbeatTimer);
-      clearInterval(telemetryTimer);
-    };
-  }, []);
+  useEffect(() => {
+    if (simState.status === 'unknown') return;
+    setTelemetryBuffer((previous) => [...previous.slice(-(MAX_SAMPLES - 1)), { errorRate: simState.error_rate, latency: simState.latency_ms, status: simState.status }]);
+  }, [simState]);
 
   return {
-    backendUrl,
-    setBackendUrl,
-    connectionStatus,
-    checkConnection,
-    simState,
-    currentReplicas,
-    lastSyncTime,
-    isLiveSync,
-    activeScenario,
-    triggerScenario,
-    resetSystem,
-    runIncident,
-    isRunningAgent,
-    runLabel,
-    summary,
-    decision,
-    safety,
-    verification,
-    attempts,
-    resolutionBanner,
-    telemetryBuffer,
-    logs,
-    addLog,
+    backendUrl, setBackendUrl, connectionStatus, checkConnection, simState, currentReplicas,
+    lastSyncTime, isLiveSync: connectionStatus === 'connected', activeScenario, triggerScenario,
+    resetSystem, runIncident, isRunningAgent, runLabel, summary, decision, safety, verification,
+    attempts, resolutionBanner, telemetryBuffer, logs, operationError,
   };
 }

@@ -23,7 +23,7 @@ class IncidentController:
             use_llm = (
                     os.getenv(
                         "LLM_ENABLED",
-                        "true",
+                        "false",
                     ).lower()
                     == "true"
             )
@@ -165,8 +165,9 @@ class IncidentController:
             # DETERMINISTIC ARBITRATION
             # -------------------------------------------------
             #
-            # Strong resource evidence should override an LLM
-            # proposal for rollback/restart.
+            # The model remains advisory. When its action conflicts
+            # with the deterministic interpretation of the same
+            # simulator evidence, prefer the evidence-backed action.
             #
             # Example:
             #
@@ -190,25 +191,11 @@ class IncidentController:
                 )
             )
 
-            deterministic_confidence = (
-                deterministic_decision.get(
-                    "confidence",
-                    0,
-                )
-            )
-
             llm_action = llm_decision.get(
                 "action"
             )
 
-            if (
-                    deterministic_action
-                    == "scale_service"
-                    and deterministic_confidence
-                    >= 0.8
-                    and llm_action
-                    != "scale_service"
-            ):
+            if deterministic_action != llm_action:
                 deterministic_decision[
                     "source"
                 ] = "deterministic_arbitration"
@@ -220,10 +207,9 @@ class IncidentController:
                 deterministic_decision[
                     "arbitration_reason"
                 ] = (
-                    "Deterministic evidence identified "
-                    "strong resource-exhaustion signals, "
-                    "so the scaling remediation was selected "
-                    "over the LLM proposal."
+                    "The model proposal conflicted with the action supported "
+                    "by deterministic simulator evidence, so the evidence-backed "
+                    "action was selected."
                 )
 
                 return deterministic_decision
@@ -366,7 +352,7 @@ class IncidentController:
     # FULL INCIDENT LOOP
     # ---------------------------------------------------------
 
-    def run_incident(self):
+    def run_incident(self, on_event=None):
         """
         Run the autonomous incident-response loop.
 
@@ -396,6 +382,10 @@ class IncidentController:
 
         previous_attempt = None
 
+        def emit(phase, **details):
+            if on_event is not None:
+                on_event(phase, details)
+
         for attempt_number in range(
                 1,
                 self.MAX_ATTEMPTS + 1,
@@ -406,6 +396,8 @@ class IncidentController:
             # ================================================
 
             observations = self.investigate()
+            detection = self.detect(observations)
+            emit("investigating", attempt=attempt_number, detection=detection)
 
             # Give the next decision-making step context about
             # what happened during the previous attempt.
@@ -421,14 +413,23 @@ class IncidentController:
             decision = self.decide(
                 observations
             )
+            diagnosis = self.diagnose(observations, decision)
+            emit(
+                "deciding",
+                attempt=attempt_number,
+                diagnosis=diagnosis,
+                decision=decision,
+            )
 
             # ================================================
             # ACT
             # ================================================
 
+            emit("safety_check", attempt=attempt_number, action=decision.get("action"))
             action_result = self.execute(
                 decision
             )
+            emit("remediating", attempt=attempt_number, action_result=action_result)
 
             # ================================================
             # ESCALATION
@@ -450,6 +451,8 @@ class IncidentController:
                     self._record_attempt(
                         attempt_number,
                         observations,
+                        detection,
+                        diagnosis,
                         decision,
                         safety_result,
                         action_result,
@@ -491,6 +494,8 @@ class IncidentController:
                     self._record_attempt(
                         attempt_number,
                         observations,
+                        detection,
+                        diagnosis,
                         decision,
                         safety_result,
                         action_result,
@@ -505,11 +510,18 @@ class IncidentController:
             # ================================================
 
             verification = self.verify()
+            emit(
+                "verifying",
+                attempt=attempt_number,
+                verification=verification.to_dict(),
+            )
 
             history.append(
                 self._record_attempt(
                     attempt_number,
                     observations,
+                    detection,
+                    diagnosis,
                     decision,
                     safety_result,
                     action_result,
@@ -548,6 +560,7 @@ class IncidentController:
             }
 
             status = "unresolved"
+            emit("adapting", attempt=attempt_number, previous_attempt=previous_attempt)
 
             # The next iteration performs:
             #
@@ -569,6 +582,7 @@ class IncidentController:
         # FINAL RESULT
         # ================================================
 
+        emit("complete", status=status, attempts=len(history))
         return {
             "attempts": history,
             "observations": observations,
@@ -576,6 +590,43 @@ class IncidentController:
             "action_result": action_result,
             "verification": verification,
             "status": status,
+        }
+
+    @staticmethod
+    def detect(observations):
+        """Classify whether fresh telemetry represents an active incident."""
+        metrics = observations.get("metrics", {})
+        health = observations.get("health", {})
+        signals = []
+        if health.get("status") != "healthy":
+            signals.append("health_check_failed")
+        if metrics.get("error_rate", 0) > verifier.MAX_ERROR_RATE:
+            signals.append("error_rate_breach")
+        if metrics.get("latency_ms", 0) > verifier.MAX_LATENCY_MS:
+            signals.append("latency_slo_breach")
+        return {
+            "incident_detected": bool(signals),
+            "signals": signals,
+        }
+
+    @staticmethod
+    def diagnose(observations, decision):
+        """Summarize evidence without exposing private model reasoning."""
+        action = decision.get("action")
+        if action == "rollback_deployment":
+            cause = "deployment_regression"
+        elif action == "scale_service":
+            cause = "resource_exhaustion"
+        elif action == "restart_service":
+            cause = "transient_service_failure"
+        elif observations.get("metrics", {}).get("status") == "healthy":
+            cause = "no_active_incident"
+        else:
+            cause = "undetermined"
+        return {
+            "probable_cause": cause,
+            "summary": decision.get("reason", "No diagnosis available."),
+            "confidence": decision.get("confidence", 0),
         }
 
     # ---------------------------------------------------------
@@ -586,6 +637,8 @@ class IncidentController:
     def _record_attempt(
             attempt_number,
             observations,
+            detection,
+            diagnosis,
             decision,
             safety_result,
             action_result,
@@ -598,6 +651,8 @@ class IncidentController:
         return {
             "attempt": attempt_number,
             "observations": observations,
+            "detection": detection,
+            "diagnosis": diagnosis,
             "decision": decision,
             "safety_result": safety_result,
             "action_result": action_result,

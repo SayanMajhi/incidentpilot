@@ -14,7 +14,9 @@ export const TelemetryDashboard: React.FC<TelemetryDashboardProps> = ({
 }) => {
   const status = simState.status || 'healthy';
   const isDown = status === 'down';
-  const statusDesc = isDown
+  const statusDesc = status === 'unknown'
+    ? 'Awaiting backend telemetry'
+    : isDown
     ? 'Active production incident detected'
     : 'All SLO objectives nominal';
 
@@ -25,7 +27,7 @@ export const TelemetryDashboard: React.FC<TelemetryDashboardProps> = ({
   const latencyNum = typeof simState.latency_ms === 'number' ? simState.latency_ms : 100;
   const isLatSpike = latencyNum > 300;
 
-  const version = simState.current_version || 'v41';
+  const version = simState.current_version || '—';
   const versionDesc = version === 'v42' ? 'Incident trigger deployment' : 'Stable build';
 
   return (

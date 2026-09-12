@@ -3,12 +3,14 @@ import type {
   MetricsResponse,
   VersionResponse,
   SimulationActionResponse,
+  IncidentStatusResponse,
+  RunIncidentResponse,
 } from '../types/incidentPilot';
 
 export const DEFAULT_BASE_URL: string =
   typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE_URL
     ? (import.meta.env.VITE_API_BASE_URL as string).trim().replace(/\/+$/, '')
-    : 'http://localhost:8000';
+    : 'http://127.0.0.1:8000';
 
 export function normalizeBaseUrl(url?: string): string {
   if (!url || typeof url !== 'string') return DEFAULT_BASE_URL;
@@ -18,12 +20,13 @@ export function normalizeBaseUrl(url?: string): string {
 export async function apiFetch(
   baseUrl: string,
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  timeoutMs = 5000
 ): Promise<Response> {
   const cleanBase = normalizeBaseUrl(baseUrl);
   const targetUrl = `${cleanBase}${endpoint}`;
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 4000);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch(targetUrl, {
@@ -31,7 +34,7 @@ export async function apiFetch(
       signal: controller.signal,
       headers: {
         Accept: 'application/json',
-        'Content-Type': 'application/json',
+        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
         ...(options.headers || {}),
       },
     });
@@ -41,6 +44,20 @@ export async function apiFetch(
     clearTimeout(timeoutId);
     throw err;
   }
+}
+
+async function readJson<T>(response: Response, label: string): Promise<T> {
+  if (!response.ok) {
+    let detail = `${label} returned ${response.status}`;
+    try {
+      const body = (await response.json()) as { detail?: string };
+      if (body.detail) detail = body.detail;
+    } catch {
+      // Preserve the status-based error when the response has no JSON body.
+    }
+    throw new Error(detail);
+  }
+  return (await response.json()) as T;
 }
 
 export async function checkHealth(baseUrl: string): Promise<HealthResponse> {
@@ -73,6 +90,11 @@ export async function simulateBadDeployment(baseUrl: string): Promise<Simulation
   return (await res.json()) as SimulationActionResponse;
 }
 
+export async function simulateAdaptiveIncident(baseUrl: string): Promise<SimulationActionResponse> {
+  const res = await apiFetch(baseUrl, '/simulate/adaptive-incident', { method: 'POST' });
+  return readJson<SimulationActionResponse>(res, 'Adaptive incident');
+}
+
 export async function simulateRecover(baseUrl: string): Promise<SimulationActionResponse> {
   const res = await apiFetch(baseUrl, '/simulate/recover', { method: 'POST' });
   if (!res.ok) throw new Error(`Simulate recover returned ${res.status}`);
@@ -90,4 +112,19 @@ export async function simulateRollback(
   );
   if (!res.ok) throw new Error(`Simulate rollback returned ${res.status}`);
   return (await res.json()) as SimulationActionResponse;
+}
+
+export async function fetchStatus(baseUrl: string): Promise<IncidentStatusResponse> {
+  const res = await apiFetch(baseUrl, '/status');
+  return readJson<IncidentStatusResponse>(res, 'Status');
+}
+
+export async function runIncident(baseUrl: string): Promise<RunIncidentResponse> {
+  const res = await apiFetch(baseUrl, '/run-incident', { method: 'POST' }, 15000);
+  return readJson<RunIncidentResponse>(res, 'Incident run');
+}
+
+export async function resetIncident(baseUrl: string): Promise<SimulationActionResponse> {
+  const res = await apiFetch(baseUrl, '/reset', { method: 'POST' });
+  return readJson<SimulationActionResponse>(res, 'Reset');
 }

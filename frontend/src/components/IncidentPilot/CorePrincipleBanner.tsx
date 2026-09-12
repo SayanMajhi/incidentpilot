@@ -13,7 +13,7 @@ export const CorePrincipleBanner: React.FC = () => {
         </div>
       </div>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--peach)' }}>
-        Observe &rarr; Decide &rarr; Safety Check &rarr; Act &rarr; Verify &rarr; Adapt
+        Observe &rarr; Detect &rarr; Investigate &rarr; Diagnose &rarr; Decide &rarr; Safety &rarr; Remediate &rarr; Verify
       </div>
     </div>
   );

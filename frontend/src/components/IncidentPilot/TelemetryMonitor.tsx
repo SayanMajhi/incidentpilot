@@ -10,17 +10,13 @@ interface TelemetryMonitorProps {
 export const TelemetryMonitor: React.FC<TelemetryMonitorProps> = ({ telemetryBuffer }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  const lastSample = telemetryBuffer[telemetryBuffer.length - 1] || {
-    errorRate: 0.01,
-    latency: 100,
-    status: 'healthy',
-  };
+  const lastSample = telemetryBuffer[telemetryBuffer.length - 1];
 
-  const isSpike = lastSample.errorRate > 0.1 || lastSample.latency > 300;
-  const statusPillClass = isSpike ? 'monitor-pill surge' : 'monitor-pill nominal';
-  const statusPillText = isSpike ? 'SURGE DETECTED' : 'NOMINAL STEADY';
+  const isSpike = Boolean(lastSample && (lastSample.errorRate > 0.1 || lastSample.latency > 300));
+  const statusPillClass = !lastSample ? 'monitor-pill' : isSpike ? 'monitor-pill surge' : 'monitor-pill nominal';
+  const statusPillText = !lastSample ? 'AWAITING DATA' : isSpike ? 'SURGE DETECTED' : 'NOMINAL STEADY';
 
-  const deltaValText = isSpike ? 'Spike Active' : 'Baseline';
+  const deltaValText = !lastSample ? '—' : isSpike ? 'Spike Active' : 'Baseline';
   const deltaValColor = isSpike ? '#ff9da8' : 'var(--emerald)';
   const deltaSubText = isSpike ? 'Elevated metrics detected' : 'Steady state nominal';
 
@@ -157,7 +153,7 @@ export const TelemetryMonitor: React.FC<TelemetryMonitorProps> = ({ telemetryBuf
       <div className="monitor-header">
         <div>
           <h3 id="monitor-heading">Real Time Telemetry Spike Monitor</h3>
-          <span className="hud-subtext">Continuous SLI Telemetry Stream (1000ms cadence)</span>
+          <span className="hud-subtext">Live SLI telemetry sampled from the FastAPI simulator</span>
         </div>
         <div className={statusPillClass} id="monitorStatusPill">
           <span className="dot" aria-hidden="true"></span>
@@ -169,7 +165,7 @@ export const TelemetryMonitor: React.FC<TelemetryMonitorProps> = ({ telemetryBuf
         <div className="monitor-stat-box">
           <span className="monitor-stat-label">Error Rate Stream</span>
           <span className="monitor-stat-value" id="monitorErrVal">
-            {(lastSample.errorRate * 100).toFixed(1)}%
+            {lastSample ? `${(lastSample.errorRate * 100).toFixed(1)}%` : '—'}
           </span>
           <span className="hud-subtext">Floor: &gt;10.0% Alert</span>
         </div>
@@ -177,7 +173,7 @@ export const TelemetryMonitor: React.FC<TelemetryMonitorProps> = ({ telemetryBuf
         <div className="monitor-stat-box">
           <span className="monitor-stat-label">Latency Stream</span>
           <span className="monitor-stat-value" id="monitorLatVal">
-            {lastSample.latency}ms
+            {lastSample ? `${lastSample.latency}ms` : '—'}
           </span>
           <span className="hud-subtext">Limit: 300ms SLA</span>
         </div>

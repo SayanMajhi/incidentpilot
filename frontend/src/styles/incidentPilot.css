@@ -1020,3 +1020,177 @@
   color: var(--text-muted);
   gap: 12px;
 }
+
+.incidentpilot-root .status-badge.unknown {
+  background: rgba(108, 122, 146, .12);
+  color: var(--text-muted);
+  border: 1px solid var(--surface-border);
+}
+
+/* Integration and lifecycle polish */
+.incidentpilot-root { width: 100%; }
+
+.incidentpilot-root > header,
+.incidentpilot-root > .offline-banner,
+.incidentpilot-root > .operation-error,
+.incidentpilot-root > .dashboard-grid,
+.incidentpilot-root > footer {
+  width: min(100%, 1840px);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.incidentpilot-root header,
+.incidentpilot-root .hud-panel,
+.incidentpilot-root .controls-panel,
+.incidentpilot-root .timeline-panel,
+.incidentpilot-root .telemetry-monitor-panel,
+.incidentpilot-root .card-panel {
+  box-shadow: 0 16px 38px rgba(5, 10, 22, .18), inset 0 1px 0 rgba(255,255,255,.025);
+}
+
+.incidentpilot-root .operation-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding: 12px 16px;
+  border: 1px solid var(--crimson-border);
+  border-radius: var(--radius-md);
+  background: var(--crimson-surface);
+  color: #fecaca;
+}
+
+.incidentpilot-root .operation-error button {
+  flex: 0 0 auto;
+  border: 1px solid var(--crimson-border);
+  border-radius: var(--radius-sm);
+  background: rgba(255,255,255,.06);
+  color: var(--text-bright);
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.incidentpilot-root .lifecycle-panel {
+  background: linear-gradient(180deg, rgba(36,47,73,.98), rgba(29,38,59,.98));
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-lg);
+  padding: 18px 22px;
+  box-shadow: 0 14px 34px rgba(5,10,22,.18);
+}
+
+.incidentpilot-root .lifecycle-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.incidentpilot-root .lifecycle-mode {
+  border: 1px solid var(--surface-border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: var(--text-muted);
+  font: 600 .75rem var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.incidentpilot-root .lifecycle-mode.running,
+.incidentpilot-root .lifecycle-mode.incident { color: var(--peach); border-color: var(--peach-border); background: var(--peach-surface); }
+.incidentpilot-root .lifecycle-mode.recovered { color: var(--emerald); border-color: var(--emerald-border); background: var(--emerald-surface); }
+
+.incidentpilot-root .lifecycle-track {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(92px, 1fr));
+  gap: 0;
+  list-style: none;
+}
+
+.incidentpilot-root .lifecycle-track li {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-faint);
+  font-size: .78rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.incidentpilot-root .lifecycle-track li:not(:last-child)::after {
+  content: '';
+  height: 1px;
+  flex: 1;
+  margin: 0 8px;
+  background: var(--surface-border);
+}
+
+.incidentpilot-root .lifecycle-track li.complete { color: var(--text-bright); }
+.incidentpilot-root .lifecycle-track li.complete:not(:last-child)::after { background: linear-gradient(90deg, var(--emerald), var(--peach-border)); }
+
+.incidentpilot-root .lifecycle-index {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  border: 1px solid var(--surface-border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text-faint);
+  font: 600 .68rem var(--font-mono);
+}
+
+.incidentpilot-root .lifecycle-track li.complete .lifecycle-index {
+  color: var(--emerald);
+  border-color: var(--emerald-border);
+  background: var(--emerald-surface);
+}
+
+.incidentpilot-root .adaptation-proof {
+  width: fit-content;
+  margin-top: 14px;
+  padding: 6px 10px;
+  border: 1px solid var(--peach-border);
+  border-radius: var(--radius-sm);
+  background: var(--burgundy-surface);
+  color: var(--peach);
+  font-size: .76rem;
+  font-weight: 650;
+}
+
+.incidentpilot-root .btn-scenario.selected {
+  border-color: var(--peach);
+  background: var(--peach-surface);
+  box-shadow: inset 0 0 0 1px rgba(255,165,134,.08);
+}
+
+.incidentpilot-root .btn-scenario:disabled,
+.incidentpilot-root .btn-reset:disabled {
+  opacity: .48;
+  cursor: not-allowed;
+  transform: none;
+}
+
+@media (max-width: 1180px) {
+  .incidentpilot-root .lifecycle-track { grid-template-columns: repeat(4, 1fr); row-gap: 12px; }
+}
+
+@media (max-width: 760px) {
+  .incidentpilot-root { padding: 14px; }
+  .incidentpilot-root header,
+  .incidentpilot-root .backend-bridge { flex-direction: column; align-items: stretch; }
+  .incidentpilot-root .bridge-input { width: 100%; }
+  .incidentpilot-root .lifecycle-track { grid-template-columns: repeat(2, 1fr); }
+  .incidentpilot-root .lifecycle-track li:nth-child(even)::after { display: none; }
+  .incidentpilot-root .controls-split,
+  .incidentpilot-root .scenario-group,
+  .incidentpilot-root .action-group { display: grid; grid-template-columns: 1fr; width: 100%; }
+  .incidentpilot-root .btn-scenario,
+  .incidentpilot-root .btn-reset,
+  .incidentpilot-root .btn-run-incident { width: 100%; justify-content: center; }
+  .incidentpilot-root .operation-error { align-items: flex-start; flex-direction: column; }
+}
