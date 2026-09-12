@@ -16,12 +16,12 @@ Usage (via a local .env file, loaded automatically):
     HF_TOKEN=hf_xxx
     HF_MODEL=Qwen/Qwen3-32B
 
-    python scripts/test_qwen_connection.py
+    python scripts/check_qwen_connection.py
 
 Usage (via shell environment variables, still works):
     export HF_TOKEN=hf_xxx
     export HF_MODEL=Qwen/Qwen3-32B   # optional, defaults to this value
-    python scripts/test_qwen_connection.py
+    python scripts/check_qwen_connection.py
 """
 
 import os

@@ -28,4 +28,5 @@ build/
 .vscode/
 .idea/
 .DS_Store
-node_modules/
+
+C:\Users\sayan\IdeaProjects\incidentpilot\frontend\node_modules/
