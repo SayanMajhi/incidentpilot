@@ -1,262 +1,75 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import gsap from 'gsap';
 import '../styles/landing.css';
 
-/* ═══════════════════════════════════════════════
-   PIPELINE ANIMATION — The centerpiece
-   ═══════════════════════════════════════════════ */
-
-type NodeState = 'idle' | 'active' | 'completed' | 'failed' | 'retry';
-
-interface PipelineNodeData {
-  id: string;
-  label: string;
-  icon: string;
-  state: NodeState;
-}
-
-const INITIAL_NODES: PipelineNodeData[] = [
-  { id: 'service', label: 'Service', icon: '◆', state: 'idle' },
-  { id: 'observe', label: 'Observe', icon: '◎', state: 'idle' },
-  { id: 'decide', label: 'Decide', icon: '⬡', state: 'idle' },
-  { id: 'act', label: 'Act', icon: '▶', state: 'idle' },
-  { id: 'verify', label: 'Verify', icon: '◈', state: 'idle' },
-  { id: 'recover', label: 'Recover', icon: '●', state: 'idle' },
+const RESPONSE_STAGES = [
+  { label: 'Observe', icon: '◎' },
+  { label: 'Investigate', icon: '⌕' },
+  { label: 'Decide', icon: '⬡' },
+  { label: 'Act safely', icon: '▶' },
+  { label: 'Verify', icon: '◈' },
+  { label: 'Adapt', icon: '↻' },
 ];
 
-type ConnectorState = 'idle' | 'active' | 'completed' | 'failed';
-
-function PipelineAnimation() {
-  const [nodes, setNodes] = useState<PipelineNodeData[]>(INITIAL_NODES);
-  const [connectorStates, setConnectorStates] = useState<ConnectorState[]>(
-    new Array(5).fill('idle')
-  );
-  const [statusText, setStatusText] = useState('System healthy');
-  const [statusClass, setStatusClass] = useState('healthy');
-  const [showRetryArc, setShowRetryArc] = useState(false);
-  const [cycle, setCycle] = useState(0);
-
-  const resetState = useCallback(() => {
-    setNodes(INITIAL_NODES.map(n => ({ ...n, state: 'idle' })));
-    setConnectorStates(new Array(5).fill('idle'));
-    setStatusText('System healthy');
-    setStatusClass('healthy');
-    setShowRetryArc(false);
-  }, []);
-
-  useEffect(() => {
-    // Check reduced motion
-    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (prefersReducedMotion) {
-      setNodes(INITIAL_NODES.map(n => ({ ...n, state: 'completed' })));
-      setConnectorStates(new Array(5).fill('completed'));
-      setStatusText('Incident resolved');
-      setStatusClass('resolved');
-      return;
-    }
-
-    const steps: Array<{ delay: number; action: () => void }> = [];
-    let d = 2000; // initial wait
-
-    // Phase 1: Service goes down
-    steps.push({ delay: d, action: () => {
-      setNodes(prev => prev.map(n => n.id === 'service' ? { ...n, state: 'failed' } : n));
-      setStatusText('⚠ Incident detected');
-      setStatusClass('failed');
-    }});
-
-    // Phase 2: Observe
-    d += 1200;
-    steps.push({ delay: d, action: () => {
-      setNodes(prev => prev.map(n => {
-        if (n.id === 'observe') return { ...n, state: 'active' };
-        return n;
-      }));
-      setConnectorStates(prev => { const c = [...prev]; c[0] = 'active'; return c; });
-      setStatusText('Observing service state...');
-      setStatusClass('investigating');
-    }});
-
-    // Phase 3: Decide
-    d += 1400;
-    steps.push({ delay: d, action: () => {
-      setNodes(prev => prev.map(n => {
-        if (n.id === 'observe') return { ...n, state: 'completed' };
-        if (n.id === 'decide') return { ...n, state: 'active' };
-        return n;
-      }));
-      setConnectorStates(prev => { const c = [...prev]; c[0] = 'completed'; c[1] = 'active'; return c; });
-      setStatusText('Deciding remediation...');
-      setStatusClass('investigating');
-    }});
-
-    // Phase 4: Act
-    d += 1200;
-    steps.push({ delay: d, action: () => {
-      setNodes(prev => prev.map(n => {
-        if (n.id === 'decide') return { ...n, state: 'completed' };
-        if (n.id === 'act') return { ...n, state: 'active' };
-        return n;
-      }));
-      setConnectorStates(prev => { const c = [...prev]; c[1] = 'completed'; c[2] = 'active'; return c; });
-      setStatusText('Executing action...');
-      setStatusClass('investigating');
-    }});
-
-    // Phase 5: Verify — FAILS
-    d += 1400;
-    steps.push({ delay: d, action: () => {
-      setNodes(prev => prev.map(n => {
-        if (n.id === 'act') return { ...n, state: 'completed' };
-        if (n.id === 'verify') return { ...n, state: 'active' };
-        return n;
-      }));
-      setConnectorStates(prev => { const c = [...prev]; c[2] = 'completed'; c[3] = 'active'; return c; });
-      setStatusText('Verifying recovery...');
-      setStatusClass('investigating');
-    }});
-
-    d += 1400;
-    steps.push({ delay: d, action: () => {
-      setNodes(prev => prev.map(n => {
-        if (n.id === 'verify') return { ...n, state: 'failed' };
-        return n;
-      }));
-      setConnectorStates(prev => { const c = [...prev]; c[3] = 'failed'; return c; });
-      setStatusText('✕ Verification failed — adapting...');
-      setStatusClass('failed');
-      setShowRetryArc(true);
-    }});
-
-    // Phase 6: Retry loop — back to observe
-    d += 1800;
-    steps.push({ delay: d, action: () => {
-      setNodes(prev => prev.map(n => {
-        if (n.id === 'observe') return { ...n, state: 'active' };
-        if (n.id === 'decide' || n.id === 'act') return { ...n, state: 'idle' };
-        if (n.id === 'verify') return { ...n, state: 'idle' };
-        return n;
-      }));
-      setConnectorStates(prev => { const c = [...prev]; c[1] = 'idle'; c[2] = 'idle'; c[3] = 'idle'; c[0] = 'active'; return c; });
-      setShowRetryArc(false);
-      setStatusText('Re-observing with new evidence...');
-      setStatusClass('adapting');
-    }});
-
-    // Phase 7: Second pass — decide
-    d += 1200;
-    steps.push({ delay: d, action: () => {
-      setNodes(prev => prev.map(n => {
-        if (n.id === 'observe') return { ...n, state: 'completed' };
-        if (n.id === 'decide') return { ...n, state: 'active' };
-        return n;
-      }));
-      setConnectorStates(prev => { const c = [...prev]; c[0] = 'completed'; c[1] = 'active'; return c; });
-      setStatusText('New decision: rollback deployment');
-      setStatusClass('investigating');
-    }});
-
-    // Phase 8: Act again
-    d += 1200;
-    steps.push({ delay: d, action: () => {
-      setNodes(prev => prev.map(n => {
-        if (n.id === 'decide') return { ...n, state: 'completed' };
-        if (n.id === 'act') return { ...n, state: 'active' };
-        return n;
-      }));
-      setConnectorStates(prev => { const c = [...prev]; c[1] = 'completed'; c[2] = 'active'; return c; });
-      setStatusText('Executing rollback...');
-      setStatusClass('investigating');
-    }});
-
-    // Phase 9: Verify — SUCCEEDS
-    d += 1400;
-    steps.push({ delay: d, action: () => {
-      setNodes(prev => prev.map(n => {
-        if (n.id === 'act') return { ...n, state: 'completed' };
-        if (n.id === 'verify') return { ...n, state: 'active' };
-        return n;
-      }));
-      setConnectorStates(prev => { const c = [...prev]; c[2] = 'completed'; c[3] = 'active'; return c; });
-      setStatusText('Verifying recovery...');
-      setStatusClass('investigating');
-    }});
-
-    d += 1400;
-    steps.push({ delay: d, action: () => {
-      setNodes(prev => prev.map(n => {
-        if (n.id === 'verify') return { ...n, state: 'completed' };
-        if (n.id === 'recover') return { ...n, state: 'active' };
-        return n;
-      }));
-      setConnectorStates(prev => { const c = [...prev]; c[3] = 'completed'; c[4] = 'active'; return c; });
-      setStatusText('✓ Verification passed');
-      setStatusClass('resolved');
-    }});
-
-    // Phase 10: Resolved
-    d += 1200;
-    steps.push({ delay: d, action: () => {
-      setNodes(prev => prev.map(n => {
-        if (n.id === 'service') return { ...n, state: 'completed' };
-        if (n.id === 'recover') return { ...n, state: 'completed' };
-        return n;
-      }));
-      setConnectorStates(new Array(5).fill('completed'));
-      setStatusText('✓ Incident resolved');
-      setStatusClass('resolved');
-    }});
-
-    // Reset and loop
-    d += 4000;
-    steps.push({ delay: d, action: () => {
-      resetState();
-      setCycle(c => c + 1);
-    }});
-
-    const timeouts = steps.map(s => setTimeout(s.action, s.delay));
-
-    return () => timeouts.forEach(clearTimeout);
-  }, [cycle, resetState]);
-
+function ResponseLifecyclePreview() {
   return (
-    <div className="pipeline-container">
-      <div className="pipeline-wrapper">
-        {nodes.map((node, i) => (
-          <div key={node.id} style={{ display: 'flex', alignItems: 'center' }}>
-            <div className={`pipeline-node ${node.state !== 'idle' ? node.state : ''}`}>
-              <div className="pipeline-node-circle">{node.icon}</div>
-              <span className="pipeline-node-label">{node.label}</span>
+    <figure className="pipeline-container lifecycle-preview">
+      <div className="pipeline-wrapper" aria-label="Illustrative incident response lifecycle">
+        {RESPONSE_STAGES.map((stage, index) => (
+          <div className="lifecycle-stage" key={stage.label}>
+            <div className="pipeline-node lifecycle-node">
+              <div className="pipeline-node-circle" aria-hidden="true">{stage.icon}</div>
+              <span className="pipeline-node-label">{stage.label}</span>
             </div>
-            {i < nodes.length - 1 && (
-              <div className={`pipeline-connector ${connectorStates[i] !== 'idle' ? connectorStates[i] : ''}`}>
-                <div className="pipeline-connector-fill" />
-              </div>
-            )}
+            {index < RESPONSE_STAGES.length - 1 && <div className="pipeline-connector lifecycle-connector" />}
           </div>
         ))}
       </div>
+      <figcaption className="pipeline-status lifecycle-caption">
+        Illustrative response lifecycle — live status is shown in the dashboard.
+      </figcaption>
+    </figure>
+  );
+}
 
-      {/* Retry arc SVG */}
-      <div className={`pipeline-retry-arc ${showRetryArc ? 'visible' : ''}`}>
-        <svg width="200" height="40" viewBox="0 0 200 40" fill="none">
-          <path
-            d="M170 35 C170 10, 30 10, 30 35"
-            stroke="var(--status-warning)"
-            strokeWidth="1.5"
-            strokeDasharray="4 3"
-            fill="none"
-            opacity="0.6"
-          />
-          <polygon points="28,30 34,38 24,38" fill="var(--status-warning)" opacity="0.6" />
-        </svg>
-      </div>
+function HumanAgentGesture() {
+  return (
+    <figure className="human-agent-gesture" aria-labelledby="gesture-caption">
+      <svg viewBox="0 0 360 104" role="img" aria-labelledby="gesture-title gesture-description">
+        <title id="gesture-title">Human and agent collaboration</title>
+        <desc id="gesture-description">Two abstract fingertips meet at the IncidentPilot signal.</desc>
+        <defs>
+          <linearGradient id="human-finger" x1="0" x2="1">
+            <stop stopColor="#A5B4FC" />
+            <stop offset="1" stopColor="#818CF8" />
+          </linearGradient>
+          <linearGradient id="agent-finger" x1="1" x2="0">
+            <stop stopColor="#67E8F9" />
+            <stop offset="1" stopColor="#22D3EE" />
+          </linearGradient>
+          <radialGradient id="gesture-glow">
+            <stop stopColor="#E0E7FF" stopOpacity="0.95" />
+            <stop offset="1" stopColor="#6366F1" stopOpacity="0" />
+          </radialGradient>
+        </defs>
 
-      <div className={`pipeline-status ${statusClass}`}>
-        {statusText}
-      </div>
-    </div>
+        <circle className="gesture-glow" cx="180" cy="52" r="38" fill="url(#gesture-glow)" />
+        <g className="gesture-human" aria-hidden="true">
+          <path d="M28 63 C73 63 96 48 126 48 H153" fill="none" stroke="url(#human-finger)" strokeWidth="14" strokeLinecap="round" />
+          <path d="M70 77 C94 70 111 63 127 58" fill="none" stroke="#6366F1" strokeOpacity="0.35" strokeWidth="5" strokeLinecap="round" />
+        </g>
+        <g className="gesture-agent" aria-hidden="true">
+          <path d="M332 63 C287 63 264 48 234 48 H207" fill="none" stroke="url(#agent-finger)" strokeWidth="14" strokeLinecap="round" />
+          <path d="M290 77 C266 70 249 63 233 58" fill="none" stroke="#22D3EE" strokeOpacity="0.35" strokeWidth="5" strokeLinecap="round" />
+        </g>
+        <circle className="gesture-signal" cx="180" cy="48" r="14" fill="#0C0C14" stroke="#E0E7FF" strokeWidth="2" />
+        <path className="gesture-bolt" d="M183 35 L172 51 H180 L177 63 L189 46 H181 Z" fill="#E0E7FF" />
+      </svg>
+      <figcaption id="gesture-caption">
+        <strong>Human control. Agent assistance.</strong>
+        <span>The agent proposes; people retain control.</span>
+      </figcaption>
+    </figure>
   );
 }
 
@@ -289,122 +102,23 @@ function useScrollReveal() {
 export default function LandingPage() {
   useScrollReveal();
   const navigate = useNavigate();
-  const landingPageRef = useRef<HTMLDivElement>(null);
-  const bottomSentinelRef = useRef<HTMLDivElement>(null);
-  const isTransitioningRef = useRef(false);
-  const mountCooldownRef = useRef(true); // Prevents instant re-trigger on browser-back
 
-  // Clean reset when page mounts (supporting browser back navigation)
-  useEffect(() => {
-    isTransitioningRef.current = false;
-    mountCooldownRef.current = true;
-    if (landingPageRef.current) {
-      gsap.set(landingPageRef.current, { clearProps: 'all' });
-    }
-    // Allow transitions only after cooldown (prevents back-button re-trigger loop)
-    const cooldownTimer = setTimeout(() => {
-      mountCooldownRef.current = false;
-    }, 600);
-    return () => clearTimeout(cooldownTimer);
-  }, []);
-
-  // Smooth GSAP transition when scrolling into Dashboard
-  const triggerScrollTransition = useCallback(() => {
-    if (isTransitioningRef.current || mountCooldownRef.current) return;
-    isTransitioningRef.current = true;
-
-    if (landingPageRef.current) {
-      gsap.to(landingPageRef.current, {
-        y: -90,
-        opacity: 0,
-        scale: 0.985,
-        duration: 0.65,
-        ease: 'power2.inOut',
-        onComplete: () => {
-          navigate('/dashboard', { state: { fromScrollTransition: true } });
-        }
-      });
-    } else {
-      navigate('/dashboard', { state: { fromScrollTransition: true } });
-    }
-  }, [navigate]);
-
-  // 1) Detect when user approaches/reaches the bottom of LandingPage
-  useEffect(() => {
-    const handleScroll = () => {
-      if (mountCooldownRef.current) return;
-      const scrollBottom = window.innerHeight + window.scrollY;
-      const documentHeight = document.documentElement.scrollHeight;
-
-      if (scrollBottom >= documentHeight - 70 && window.scrollY > 300) {
-        triggerScrollTransition();
-      } else if (scrollBottom < documentHeight - 250) {
-        // Re-arm if user scrolls back up
-        isTransitioningRef.current = false;
-      }
-    };
-
-    const handleWheel = (e: WheelEvent) => {
-      if (mountCooldownRef.current) return;
-      if (e.deltaY > 0 && window.scrollY > 300) {
-        const scrollBottom = window.innerHeight + window.scrollY;
-        const documentHeight = document.documentElement.scrollHeight;
-        if (scrollBottom >= documentHeight - 90) {
-          triggerScrollTransition();
-        }
-      }
-    };
-
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    window.addEventListener('wheel', handleWheel, { passive: true });
-
-    // Also observe bottom sentinel with IntersectionObserver
-    const sentinel = bottomSentinelRef.current;
-    let observer: IntersectionObserver | null = null;
-    if (sentinel) {
-      observer = new IntersectionObserver(
-        (entries) => {
-          if (mountCooldownRef.current) return;
-          const [entry] = entries;
-          if (entry.isIntersecting && window.scrollY > 300) {
-            triggerScrollTransition();
-          }
-        },
-        { threshold: 0.1 }
-      );
-      observer.observe(sentinel);
-    }
-
-    return () => {
-      window.removeEventListener('scroll', handleScroll);
-      window.removeEventListener('wheel', handleWheel);
-      if (observer && sentinel) observer.unobserve(sentinel);
-    };
-  }, [triggerScrollTransition]);
-
-  // Existing Hero button click handler - untouched and works directly
   const handleLaunch = () => {
-    navigate('/dashboard', { state: { fromScrollTransition: true } });
+    navigate('/dashboard');
   };
-
-  // Directly show the bottom half of page 2 (the dashboard) and skip the above animation
-  const handleDirectLaunch = () => {
-    navigate('/dashboard#incident-pilot-section', { state: { skipHero: true } });
-  };
-
   const handleSeeHow = () => {
     document.getElementById('how-it-works')?.scrollIntoView({ behavior: 'smooth' });
   };
 
   return (
-    <div ref={landingPageRef} className="landing-page">
+    <div className="landing-page">
       {/* Navigation */}
       <nav className="landing-nav">
         <div className="landing-nav-brand">
           <div className="brand-icon">⚡</div>
           IncidentPilot
         </div>
-        <button className="landing-nav-cta" onClick={handleDirectLaunch}>
+        <button className="landing-nav-cta" onClick={handleLaunch}>
           Launch Dashboard
         </button>
       </nav>
@@ -441,7 +155,8 @@ export default function LandingPage() {
           </button>
         </div>
 
-        <PipelineAnimation />
+        <HumanAgentGesture />
+        <ResponseLifecyclePreview />
       </section>
 
       {/* The Problem */}
@@ -770,10 +485,10 @@ export default function LandingPage() {
           <p className="final-cta-subtitle">
             Don't just automate responses — verify them.
           </p>
-          <div className="scroll-transition-hint" onClick={triggerScrollTransition} role="button" tabIndex={0}>
-            <span className="scroll-transition-label">Scroll down to enter Dashboard</span>
-            <div className="scroll-transition-arrow">↓</div>
-          </div>
+          <button className="btn-primary" onClick={handleLaunch}>
+            Launch IncidentPilot
+            <span style={{ fontSize: '14px' }}>→</span>
+          </button>
         </div>
       </section>
 
@@ -781,8 +496,6 @@ export default function LandingPage() {
       <footer className="landing-footer">
         IncidentPilot · Autonomous Incident Response · Built for the future of SRE
       </footer>
-      {/* Bottom sentinel to detect scroll end */}
-      <div ref={bottomSentinelRef} style={{ height: '2px', width: '100%', pointerEvents: 'none' }} />
     </div>
   );
 }

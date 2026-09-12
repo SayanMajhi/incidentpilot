@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import * as api from '../services/incidentPilotApi';
+import * as api from '../services/originalDashboardApi';
 import type {
   Attempt, BackendAttempt, IncidentResult, IncidentStatusResponse, IncidentSummary,
   DecisionDetails, LogEntry, ResolutionBanner, SafetyState, ServiceState,
@@ -86,7 +86,7 @@ export function useIncidentPilot(initialBaseUrl = api.DEFAULT_BASE_URL) {
       setAttempts([]); setResolutionBanner({ visible: false, text: '', isResolved: false });
       return;
     }
-    const finalAttempt = result.attempts.at(-1);
+    const finalAttempt = result.attempts[result.attempts.length - 1];
     if (!finalAttempt) return;
     const recovered = result.status === 'resolved';
     setSummary({

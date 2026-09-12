@@ -16,12 +16,16 @@ interface AgentExecutionTimelineProps {
   attempts: Attempt[];
   resolutionBanner: ResolutionBanner;
   summaryAgentStatus: string;
+  selectedAttemptNumber: number | null;
+  onSelectAttempt: (attempt: Attempt) => void;
 }
 
 export const AgentExecutionTimeline: React.FC<AgentExecutionTimelineProps> = ({
   attempts,
   resolutionBanner,
   summaryAgentStatus,
+  selectedAttemptNumber,
+  onSelectAttempt,
 }) => {
   const isStandby = attempts.length === 0;
 
@@ -61,13 +65,18 @@ export const AgentExecutionTimeline: React.FC<AgentExecutionTimelineProps> = ({
             }
 
             return (
-              <div key={attempt.id} className={`attempt-card ${stateClass}`} id={attempt.id}>
-                <div className="attempt-header">
+              <details
+                key={attempt.id}
+                className={`attempt-card ${stateClass} ${selectedAttemptNumber === attempt.number ? 'selected-attempt' : ''}`}
+                id={attempt.id}
+                onToggle={(event) => { if (event.currentTarget.open) onSelectAttempt(attempt); }}
+              >
+                <summary className="attempt-header" onClick={() => onSelectAttempt(attempt)}>
                   <span className="attempt-tag">{attempt.tag}</span>
                   <span className={`attempt-status-pill ${attempt.statusClass}`}>
                     {attempt.statusText}
                   </span>
-                </div>
+                </summary>
                 <div className="attempt-body">
                   {attempt.steps.map((step, idx) => (
                     <div key={idx} className="step-item">
@@ -86,7 +95,7 @@ export const AgentExecutionTimeline: React.FC<AgentExecutionTimelineProps> = ({
                     </div>
                   ))}
                 </div>
-              </div>
+              </details>
             );
           })
         )}

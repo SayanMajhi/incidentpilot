@@ -1,28 +1,28 @@
 /* Scoped Design Tokens & Root Container */
 
 .incidentpilot-root {
-  /* Palette based on #161e2f #242f49 #384358 #ffa586 #b51a2b #541a2e */
-  --bg: #161e2f;
-  --bg-elevated: #242f49;
-  --surface: #1d263b;
-  --surface-border: #384358;
-  --surface-hover: #2c3854;
-  --text-bright: #f8fafc;
-  --text-main: #d0d7e2;
-  --text-muted: #a4b1c6;
-  --text-faint: #6c7a92;
+  /* Shared IncidentPilot identity: indigo/cyan for product, semantic colors for state. */
+  --bg: #080b14;
+  --bg-elevated: #101627;
+  --surface: #151d31;
+  --surface-border: #2b3856;
+  --surface-hover: #1d2943;
+  --text-bright: #f1f5f9;
+  --text-main: #cbd5e1;
+  --text-muted: #94a3b8;
+  --text-faint: #64748b;
 
-  --peach: #ffa586;
-  --peach-surface: rgba(255, 165, 134, 0.12);
-  --peach-border: rgba(255, 165, 134, 0.35);
+  --peach: #818cf8;
+  --peach-surface: rgba(129, 140, 248, 0.14);
+  --peach-border: rgba(129, 140, 248, 0.42);
 
-  --crimson: #b51a2b;
-  --crimson-surface: rgba(181, 26, 43, 0.16);
-  --crimson-border: rgba(181, 26, 43, 0.4);
+  --crimson: #f87171;
+  --crimson-surface: rgba(248, 113, 113, 0.15);
+  --crimson-border: rgba(248, 113, 113, 0.42);
 
-  --burgundy: #541a2e;
-  --burgundy-surface: rgba(84, 26, 46, 0.28);
-  --burgundy-border: rgba(84, 26, 46, 0.55);
+  --burgundy: #22d3ee;
+  --burgundy-surface: rgba(34, 211, 238, 0.12);
+  --burgundy-border: rgba(34, 211, 238, 0.38);
 
   --emerald: #10b981;
   --emerald-surface: rgba(16, 185, 129, 0.12);
@@ -1025,6 +1025,139 @@
   background: rgba(108, 122, 146, .12);
   color: var(--text-muted);
   border: 1px solid var(--surface-border);
+}
+
+/* Command center hierarchy */
+.incidentpilot-root .command-bar,
+.incidentpilot-root .incident-focus {
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  box-shadow: 0 16px 38px rgba(5, 10, 22, .18), inset 0 1px 0 rgba(255,255,255,.025);
+}
+
+.incidentpilot-root .command-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+}
+
+.incidentpilot-root .command-state {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+
+.incidentpilot-root .command-state > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.incidentpilot-root .command-state span:not(.command-health) {
+  color: var(--text-faint);
+  font-size: .72rem;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.incidentpilot-root .command-state strong {
+  overflow: hidden;
+  color: var(--text-bright);
+  font-size: .88rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.incidentpilot-root .command-health {
+  padding: 5px 8px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: .78rem;
+  font-weight: 700;
+}
+.incidentpilot-root .command-health.healthy { border-color: var(--emerald-border); color: var(--emerald); background: var(--emerald-surface); }
+.incidentpilot-root .command-health.down { border-color: var(--crimson-border); color: #fecaca; background: var(--crimson-surface); }
+.incidentpilot-root .command-health.degraded { border-color: var(--amber-border); color: var(--amber); background: var(--amber-surface); }
+
+.incidentpilot-root .command-run {
+  flex: 0 0 auto;
+  min-height: 42px;
+  padding: 0 18px;
+  border: 1px solid var(--peach-border);
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, #6366f1, #22d3ee);
+  color: #fff;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-weight: 700;
+}
+.incidentpilot-root .command-run:disabled { cursor: not-allowed; opacity: .55; }
+
+.incidentpilot-root .incident-focus { padding: 22px 24px; }
+.incidentpilot-root .incident-focus-active { border-color: var(--crimson-border); }
+.incidentpilot-root .incident-focus-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.incidentpilot-root .section-kicker { color: var(--peach); font-size: .72rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.incidentpilot-root .incident-focus h2,
+.incidentpilot-root .inspector-heading h2 { margin-top: 3px; color: var(--text-bright); font-size: 1.28rem; }
+.incidentpilot-root .incident-focus p { max-width: 900px; margin-top: 6px; color: var(--text-muted); }
+.incidentpilot-root .incident-verdict { flex: 0 0 auto; padding: 6px 9px; border: 1px solid var(--surface-border); border-radius: var(--radius-sm); color: var(--text-muted); font-family: var(--font-mono); font-size: .75rem; }
+.incidentpilot-root .incident-verdict.verified { border-color: var(--emerald-border); color: var(--emerald); background: var(--emerald-surface); }
+.incidentpilot-root .incident-verdict.failed { border-color: var(--crimson-border); color: #fecaca; background: var(--crimson-surface); }
+.incidentpilot-root .incident-focus-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
+.incidentpilot-root .incident-focus-facts > div { min-width: 0; }
+.incidentpilot-root .incident-focus-facts dt { color: var(--text-faint); font-size: .74rem; text-transform: uppercase; letter-spacing: .06em; }
+.incidentpilot-root .incident-focus-facts dd { margin-top: 4px; color: var(--text-main); font-size: .86rem; overflow-wrap: anywhere; }
+
+/* Collapsed attempts reserve detail for the operator who asks for it. */
+.incidentpilot-root summary.attempt-header { list-style: none; cursor: pointer; }
+.incidentpilot-root summary.attempt-header::-webkit-details-marker { display: none; }
+.incidentpilot-root summary.attempt-header::after { content: 'Show details'; margin-left: auto; color: var(--text-faint); font-size: .74rem; }
+.incidentpilot-root details[open] summary.attempt-header::after { content: 'Hide details'; }
+.incidentpilot-root .failed-attempt > summary.attempt-header { background: var(--crimson-surface); }
+.incidentpilot-root .selected-attempt { box-shadow: 0 0 0 2px var(--peach-border), 0 14px 28px rgba(5, 10, 22, .22); }
+.incidentpilot-root .failed-attempt .attempt-status-pill { border-color: var(--crimson-border); color: #fecaca; background: var(--crimson-surface); }
+.incidentpilot-root .step-details.adapt-callout { border-left: 3px solid var(--peach); box-shadow: inset 0 0 0 1px var(--peach-border); }
+
+/* Inspector tabs keep every existing statistic available without a long sidebar. */
+.incidentpilot-root .inspector-tabs {
+  position: sticky;
+  top: 16px;
+  align-self: start;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  box-shadow: 0 16px 38px rgba(5, 10, 22, .18), inset 0 1px 0 rgba(255,255,255,.025);
+  overflow: hidden;
+}
+.incidentpilot-root .inspector-heading { display: flex; align-items: flex-start; justify-content: space-between; padding: 18px 20px 14px; }
+.incidentpilot-root .inspector-tablist { display: flex; overflow-x: auto; border-top: 1px solid var(--surface-border); border-bottom: 1px solid var(--surface-border); }
+.incidentpilot-root .inspector-tablist button { flex: 1 0 auto; padding: 10px 12px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--text-muted); cursor: pointer; font-family: var(--font-ui); font-size: .78rem; font-weight: 700; }
+.incidentpilot-root .inspector-tablist button[aria-selected="true"] { border-bottom-color: var(--cyan, #22d3ee); color: #a5b4fc; background: var(--peach-surface); }
+.incidentpilot-root .inspector-panel { padding: 16px 20px 20px; }
+.incidentpilot-root .inspector-panel dl { display: grid; gap: 0; }
+.incidentpilot-root .inspector-row { display: grid; grid-template-columns: minmax(100px, .8fr) minmax(0, 1.4fr); gap: 12px; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,.06); }
+.incidentpilot-root .inspector-row:last-child { border-bottom: 0; }
+.incidentpilot-root .inspector-row dt { color: var(--text-muted); font-size: .8rem; }
+.incidentpilot-root .inspector-row dd { color: var(--text-bright); font-family: var(--font-mono); font-size: .8rem; overflow-wrap: anywhere; }
+.incidentpilot-root .inspector-empty { color: var(--text-muted); font-size: .85rem; }
+
+.incidentpilot-root .brand-icon { background: linear-gradient(135deg, #6366f1 0%, #22d3ee 100%); border-color: var(--peach-border); }
+
+@media (max-width: 760px) {
+  .incidentpilot-root .command-bar,
+  .incidentpilot-root .incident-focus-heading { align-items: stretch; flex-direction: column; }
+  .incidentpilot-root .command-state { align-items: stretch; flex-direction: column; gap: 12px; }
+  .incidentpilot-root .command-state > div { grid-template-columns: 110px 1fr; align-items: baseline; }
+  .incidentpilot-root .command-run { width: 100%; }
+  .incidentpilot-root .incident-focus-facts { grid-template-columns: 1fr; }
+  .incidentpilot-root .incident-verdict { width: fit-content; }
+  .incidentpilot-root .inspector-tabs { position: static; }
 }
 
 /* Integration and lifecycle polish */

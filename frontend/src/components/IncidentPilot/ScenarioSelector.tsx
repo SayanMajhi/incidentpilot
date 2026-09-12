@@ -24,7 +24,7 @@ export const ScenarioSelector: React.FC<ScenarioSelectorProps> = ({
       <div className="controls-split">
         <div className="scenario-group">
           <span className="panel-title" id="controls-heading" style={{ marginRight: '6px' }}>
-            Scenarios:
+            Demo scenarios:
           </span>
           <button
             className={`btn-scenario ${activeScenario === 'Normal / Healthy' ? 'selected' : ''}`}

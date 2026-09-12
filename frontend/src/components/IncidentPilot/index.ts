@@ -8,3 +8,6 @@ export { AgentExecutionTimeline } from './AgentExecutionTimeline';
 export { TelemetryMonitor } from './TelemetryMonitor';
 export { InspectionSidebar } from './InspectionSidebar';
 export { Footer } from './Footer';
+export { CommandBar } from './CommandBar';
+export { IncidentFocus } from './IncidentFocus';
+export { InspectorTabs } from './InspectorTabs';
