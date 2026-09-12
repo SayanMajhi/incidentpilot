@@ -15,13 +15,13 @@ def reset_simulator_state():
     module-level state."""
     service.simulate_recover()
     service.state.current_version = service.INITIAL_VERSION
-    remediation._current_replicas = 1
+    remediation.reset_replicas()
 
     yield
 
     service.simulate_recover()
     service.state.current_version = service.INITIAL_VERSION
-    remediation._current_replicas = 1
+    remediation.reset_replicas()
 
 
 def test_controller_collects_incident_observations():

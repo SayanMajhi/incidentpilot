@@ -31,10 +31,10 @@ def _assert_no_resolution_claim(result: dict) -> None:
 def reset_state():
     """Reset the simulator and remediation module state before/after each test."""
     service.state = service._initial_state()
-    remediation._current_replicas = 1
+    remediation.reset_replicas()
     yield
     service.state = service._initial_state()
-    remediation._current_replicas = 1
+    remediation.reset_replicas()
 
 
 # ---------------------------------------------------------------------------

@@ -71,7 +71,8 @@ def test_reset_clears_all_cross_scenario_state():
     assert status["scenario"] == "healthy"
     assert status["replicas"] == 1
     assert status["incident"] is None
-    assert service.adaptive_incident_active is False
+    assert service.transient_fault_active() is False
+    assert service.capacity_utilization() <= 1.0
 
 
 def test_duplicate_incident_runs_are_rejected():

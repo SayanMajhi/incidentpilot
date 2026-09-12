@@ -11,9 +11,11 @@ class VerificationResult:
     in execution history.
     """
 
-    def __init__(self, recovered, reason):
+    def __init__(self, recovered, reason, telemetry=None):
         self.recovered = bool(recovered)
         self.reason = str(reason)
+        # The fresh post-action telemetry the verdict was based on, if any.
+        self.telemetry = telemetry
 
     def to_dict(self):
         """
@@ -22,6 +24,7 @@ class VerificationResult:
         return {
             "recovered": self.recovered,
             "reason": self.reason,
+            "telemetry": self.telemetry,
         }
 
     def __repr__(self):
@@ -84,6 +87,13 @@ class Verifier:
                 "Metrics contain invalid numeric values"
             )
 
+        # A reported non-healthy status overrides otherwise passing numbers.
+        if metrics.get("status") not in (None, "healthy"):
+            return VerificationResult(
+                False,
+                "Service metrics are still unhealthy"
+            )
+
         # Healthy.
         if (
                 error_rate <= self.MAX_ERROR_RATE
@@ -121,11 +131,13 @@ class Verifier:
                 "No observations available"
             )
 
-        for metrics in observations:
+        for index, metrics in enumerate(observations):
 
             result = self.verify(metrics)
 
             if not result.recovered:
+                if index == 0:
+                    return result
                 return VerificationResult(
                     False,
                     "Service became unhealthy during verification"

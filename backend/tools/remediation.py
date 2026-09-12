@@ -38,14 +38,10 @@ from backend.tools import diagnostics
 MIN_REPLICAS: int = slo.MIN_REPLICAS
 MAX_REPLICAS: int = slo.MAX_REPLICAS
 
-# ---------------------------------------------------------------------------
-# Module-level simulated infrastructure state
-# ---------------------------------------------------------------------------
-# The simulator (backend/simulator/service.py) doesn't model replica count, so
-# remediation.py tracks it independently, in-memory, without modifying
-# backend/simulator/service.py.
-
-_current_replicas: int = 1
+# Replica count is simulator state (backend/simulator/service.py): provisioned
+# capacity is one of the causes the simulator derives service health from.
+# None of the tools below know which scenario is active - each one applies
+# only the effect its real-world counterpart would have.
 
 
 # ---------------------------------------------------------------------------
@@ -55,12 +51,10 @@ _current_replicas: int = 1
 def reset_replicas() -> int:
     """Reset the simulated replica count to the baseline of one.
 
-    Exposed so ``POST /reset`` can restore replica state without reaching
-    into this module's private global.
+    Exposed so ``POST /reset`` can restore replica state.
     """
-    global _current_replicas
-    _current_replicas = MIN_REPLICAS
-    return _current_replicas
+    service.set_replicas(MIN_REPLICAS)
+    return service.get_replicas()
 
 
 def restart_service() -> Dict[str, Union[str, bool]]:
@@ -85,17 +79,15 @@ def restart_service() -> Dict[str, Union[str, bool]]:
     """
     cleared = service.clear_transient_failure()
 
-    if service.adaptive_incident_active:
-        service.simulate_adaptive_restart_effect()
-
-    detail = (
-        "Transient state was cleared."
-        if cleared
-        else (
+    if cleared:
+        detail = "Transient state was cleared."
+    elif service.deployment_regression_active():
+        detail = (
             "The restart completed, but the incident cause is still "
             "deployed, so transient state could not be cleared."
         )
-    )
+    else:
+        detail = "Worker processes were restarted."
 
     return {
         "action": "restart_service",
@@ -205,8 +197,6 @@ def scale_service(replicas: int) -> Dict[str, Union[str, bool, int]]:
             - "current_replicas" (int): the replica count after this call
               (unchanged if the request was rejected).
     """
-    global _current_replicas
-
     if replicas < MIN_REPLICAS or replicas > MAX_REPLICAS:
         return {
             "action": "scale_service",
@@ -217,13 +207,10 @@ def scale_service(replicas: int) -> Dict[str, Union[str, bool, int]]:
                 f"range [{MIN_REPLICAS}, {MAX_REPLICAS}]."
             ),
             "requested_replicas": replicas,
-            "current_replicas": _current_replicas,
+            "current_replicas": service.get_replicas(),
         }
 
-    _current_replicas = replicas
-
-    if service.adaptive_incident_active:
-        service.simulate_adaptive_scale_effect()
+    service.set_replicas(replicas)
 
     return {
         "action": "scale_service",
@@ -249,4 +236,4 @@ def get_current_replicas() -> int:
     Returns:
         int: The current number of simulated replicas.
     """
-    return _current_replicas
+    return service.get_replicas()
