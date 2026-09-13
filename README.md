@@ -6,33 +6,9 @@ Every run has a unique ID, an explicit recovery goal, live phase, bounded attemp
 
 The project is deliberately self-contained: **there is no database, queue, cache, or external infrastructure requirement**. Service, incident, replica, and execution state live in memory and reset when the backend process exits.
 
-## Architecture
+## Architecture 
 
-```text
-React dashboard
-  GET /config    -> SLO thresholds and action bounds (read once)
-  GET /status    -> live service telemetry + live agent phase (polled)
-  GET /timeline  -> render-ready execution history      (polled)
-  POST /simulate/*, /run-incident, /reset
-             |
-             v
-FastAPI simulator/API (backend/simulator/service.py)
-             |
-             v
-IncidentController
-  Observe/Detect -> Investigate -> Diagnose -> Decide
-                                         |
-                deterministic policy gate
-                                         |
-            Infrastructure interface (backend/infrastructure)
-                 /                                  \
-      SimulatorInfrastructure              KubernetesInfrastructure
-      tools -> simulator state             namespace "incidentpilot" only
-                                         |
-                         fresh telemetry verification
-                                         |
-                    recover OR adapt OR escalate to a human
-```
+![IncidentPilot system architecture](system-architecture.svg)
 
 ### Execution environments
 
@@ -220,4 +196,4 @@ Optionally, `scripts/check_qwen_connection.py` verifies Hugging Face connectivit
 - Unsafe or unsupported actions are blocked before remediation. The policy gate and the remediation executor share one set of bounds, so the gate can never approve an action the executor would reject.
 - Simulator state is deterministic and single-process. Kubernetes mode uses a real local cluster through the restricted Kubernetes adapter; it is not intended for a production control plane.
 - State is process-local and is not durable across backend restarts. There is explicitly **no database**.
-- Optional hosted-model latency and availability depend on the configured Hugging Face service; deterministic mode is recommended for repeatable local demos.
+- Optional hosted-model latency and availability depend on the configured Hugging Face service; deterministic mode is recommended for repeatable local demos..

@@ -1,0 +1,425 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="ad" markerWidth="8" markerHeight="8" refX="6.5" refY="3.5" orient="auto-start-reverse"><path d="M0 0L7 3.5L0 7Z" fill="#334155"/></marker>
+    <marker id="asl" markerWidth="8" markerHeight="8" refX="6.5" refY="3.5" orient="auto-start-reverse"><path d="M0 0L7 3.5L0 7Z" fill="#64748B"/></marker>
+    <marker id="ap" markerWidth="8" markerHeight="8" refX="6.5" refY="3.5" orient="auto-start-reverse"><path d="M0 0L7 3.5L0 7Z" fill="#7C3AED"/></marker>
+    <marker id="aa" markerWidth="8" markerHeight="8" refX="6.5" refY="3.5" orient="auto-start-reverse"><path d="M0 0L7 3.5L0 7Z" fill="#D97706"/></marker>
+    <marker id="ar" markerWidth="8" markerHeight="8" refX="6.5" refY="3.5" orient="auto-start-reverse"><path d="M0 0L7 3.5L0 7Z" fill="#DC2626"/></marker>
+    <marker id="ag" markerWidth="8" markerHeight="8" refX="6.5" refY="3.5" orient="auto-start-reverse"><path d="M0 0L7 3.5L0 7Z" fill="#16A34A"/></marker>
+    <marker id="ac" markerWidth="8" markerHeight="8" refX="6.5" refY="3.5" orient="auto-start-reverse"><path d="M0 0L7 3.5L0 7Z" fill="#0284C7"/></marker>
+
+    <symbol id="i-user" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-6 8-6s8 2 8 6"/></g></symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M9 20h6M12 16v4"/></g></symbol>
+    <symbol id="i-server" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M6.5 7.5h1M6.5 16.5h1"/></g></symbol>
+    <symbol id="i-chip" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="10" y="10" width="4" height="4"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></g></symbol>
+    <symbol id="i-brain" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5a3 3 0 0 1 6 0"/><path d="M9 5a4 4 0 0 0-4 4v6a4 4 0 0 0 4 4"/><path d="M15 5a4 4 0 0 1 4 4v6a4 4 0 0 1-4 4"/><path d="M15 19a3 3 0 0 1-6 0"/><path d="M12 5v14"/></g></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="5.5"/><path d="M15 15l5 5"/></g></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.5"/><path d="M12 4v3M12 17v3M4 12h3M17 12h3M6.3 6.3l2.1 2.1M15.6 15.6l2.1 2.1M17.7 6.3l-2.1 2.1M8.4 15.6l-2.1 2.1"/></g></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z"/><path d="M19 3.5v3M17.5 5h3"/></g></symbol>
+    <symbol id="i-scales" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v17M9 20h6M4 7h16"/><path d="M6 7l-3 6h6zM18 7l-3 6h6z"/></g></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/></g></symbol>
+    <symbol id="i-pulse" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2-5 4 10 2-5h6"/></g></symbol>
+    <symbol id="i-rcw" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 4v5h-5"/><path d="M20 9a8.2 8.2 0 1 0 .6 3.5"/></g></symbol>
+    <symbol id="i-rccw" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v5h5"/><path d="M4 9a8.2 8.2 0 1 1-.6 3.5"/></g></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></g></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/><path d="M3 17l9 5 9-5"/></g></symbol>
+    <symbol id="i-flask" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6M10 3v6l-6 9a2 2 0 0 0 1.8 3h12.4A2 2 0 0 0 20 18l-6-9V3"/><path d="M7.5 15h9"/></g></symbol>
+    <symbol id="i-hex" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7.5 4.4v9.2L12 21l-7.5-4.4V7.4z"/><circle cx="12" cy="9" r="1.2" fill="currentColor" stroke="none"/><circle cx="9" cy="14" r="1.2" fill="currentColor" stroke="none"/><circle cx="15" cy="14" r="1.2" fill="currentColor" stroke="none"/><path d="M12 9l-3 5M12 9l3 5M9 14h6" stroke-width="1.2"/></g></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M8.2 12.2l2.6 2.6 5-5.4"/></g></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3L2.5 20h19z"/><path d="M12 9.5v4.5M12 17.2v.1"/></g></symbol>
+  </defs>
+
+  <!-- ======================= PAGE + CANVAS ======================= -->
+  <rect x="0" y="0" width="1600" height="900" fill="#E9E6F7"/>
+  <rect x="28" y="22" width="1544" height="856" rx="22" fill="#FFFFFF" stroke="#D8D3F0" stroke-width="1.5"/>
+
+  <!-- ======================= TITLE ======================= -->
+  <text x="800" y="60" text-anchor="middle" font-size="28" font-weight="700" fill="#1E1B4B">IncidentPilot System Architecture</text>
+  <text x="800" y="84" text-anchor="middle" font-size="14.5" font-weight="600" fill="#7C3AED" letter-spacing="1">Bounded Autonomous Incident Response</text>
+  <rect x="558" y="96" width="484" height="26" rx="13" fill="#FEF3C7" stroke="#F59E0B" stroke-width="1.2"/>
+  <text x="800" y="113" text-anchor="middle" font-size="12" font-style="italic" font-weight="600" fill="#92400E">&#8220;A successful infrastructure command does not mean the service recovered.&#8221;</text>
+
+  <!-- ======================= LEGEND ======================= -->
+  <rect x="1326" y="36" width="234" height="72" rx="10" fill="#FBFAFE" stroke="#D8D3F0"/>
+  <line x1="1338" y1="50" x2="1370" y2="50" stroke="#334155" stroke-width="2.2" marker-end="url(#ad)"/>
+  <text x="1378" y="53" font-size="8.5" fill="#334155">Main execution flow</text>
+  <line x1="1338" y1="66" x2="1370" y2="66" stroke="#7C3AED" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#ap)"/>
+  <text x="1378" y="69" font-size="8.5" fill="#334155">Qwen advisory (optional)</text>
+  <line x1="1338" y1="82" x2="1370" y2="82" stroke="#D97706" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#aa)"/>
+  <text x="1378" y="85" font-size="8.5" fill="#334155">Feedback / replanning</text>
+  <line x1="1338" y1="98" x2="1370" y2="98" stroke="#DC2626" stroke-width="1.8" stroke-dasharray="3 3" marker-end="url(#ar)"/>
+  <text x="1378" y="101" font-size="8.5" fill="#334155">Blocked / escalation</text>
+
+  <!-- ======================= ZONES ======================= -->
+  <rect x="44" y="140" width="360" height="480" rx="16" fill="#F0F9FF" fill-opacity="0.65" stroke="#38BDF8" stroke-width="1.5" stroke-dasharray="7 5"/>
+  <text x="58" y="158" font-size="11" font-weight="700" letter-spacing="1.2" fill="#0369A1">HUMAN INTERACTION &amp; API</text>
+
+  <rect x="416" y="140" width="608" height="480" rx="16" fill="#FAF5FF" fill-opacity="0.6" stroke="#A78BFA" stroke-width="1.5" stroke-dasharray="7 5"/>
+  <text x="430" y="158" font-size="11" font-weight="700" letter-spacing="1.2" fill="#6D28D9">AUTONOMOUS AGENT CORE</text>
+
+  <rect x="1036" y="140" width="520" height="480" rx="16" fill="#F8FAFC" fill-opacity="0.8" stroke="#94A3B8" stroke-width="1.5" stroke-dasharray="7 5"/>
+  <text x="1048" y="158" font-size="11" font-weight="700" letter-spacing="1.2" fill="#475569">TOOLS, INFRASTRUCTURE &amp; OUTCOMES</text>
+
+  <!-- ======================= LEFT ZONE ======================= -->
+  <!-- Human operator -->
+  <rect x="140" y="164" width="36" height="36" rx="9" fill="#E0F2FE" stroke="#0284C7" stroke-width="1.5"/>
+  <use href="#i-user" x="147" y="171" width="22" height="22" color="#0284C7"/>
+  <text x="184" y="187" font-size="13" font-weight="700" fill="#0C4A6E">Human Operator</text>
+
+  <line x1="210" y1="204" x2="210" y2="220" stroke="#334155" stroke-width="1.8" marker-start="url(#ad)" marker-end="url(#ad)"/>
+
+  <!-- React Dashboard -->
+  <rect x="60" y="224" width="300" height="118" rx="10" fill="#FFFFFF" stroke="#0284C7" stroke-width="1.5"/>
+  <rect x="68" y="232" width="28" height="28" rx="7" fill="#E0F2FE"/>
+  <use href="#i-monitor" x="73" y="237" width="18" height="18" color="#0284C7"/>
+  <text x="104" y="250" font-size="12.5" font-weight="700" fill="#0C4A6E">React Dashboard</text>
+  <text x="78" y="272" font-size="9" fill="#475569">&#8226; Live telemetry</text>
+  <text x="78" y="287" font-size="9" fill="#475569">&#8226; Attempt timeline</text>
+  <text x="78" y="302" font-size="9" fill="#475569">&#8226; Evidence &amp; diagnosis</text>
+  <text x="220" y="272" font-size="9" fill="#475569">&#8226; Incident controls</text>
+  <text x="220" y="287" font-size="9" fill="#475569">&#8226; Run ID, goal &amp; status</text>
+  <text x="78" y="326" font-size="8" font-style="italic" fill="#64748B">Dashboard polls /status &amp; /timeline every 2 s</text>
+
+  <!-- REST connection -->
+  <line x1="140" y1="346" x2="140" y2="396" stroke="#334155" stroke-width="1.8" marker-start="url(#ad)" marker-end="url(#ad)"/>
+  <text x="132" y="374" text-anchor="end" font-size="9" font-weight="700" fill="#0369A1">REST API</text>
+  <text x="152" y="362" font-size="8" font-family="Consolas, Menlo, monospace" fill="#334155"><tspan font-weight="700">GET</tspan>  /config &#183; /status &#183; /timeline</text>
+  <text x="152" y="376" font-size="8" font-family="Consolas, Menlo, monospace" fill="#334155"><tspan font-weight="700">POST</tspan> /simulate/* &#183; /run-incident &#183; /reset</text>
+
+  <!-- FastAPI -->
+  <rect x="60" y="400" width="300" height="52" rx="10" fill="#FFFFFF" stroke="#0284C7" stroke-width="1.5"/>
+  <rect x="68" y="408" width="28" height="28" rx="7" fill="#E0F2FE"/>
+  <use href="#i-server" x="73" y="413" width="18" height="18" color="#0284C7"/>
+  <text x="104" y="424" font-size="12.5" font-weight="700" fill="#0C4A6E">FastAPI Backend</text>
+  <text x="104" y="441" font-size="8.5" font-family="Consolas, Menlo, monospace" fill="#64748B">backend/simulator/service.py</text>
+
+  <line x1="140" y1="456" x2="140" y2="474" stroke="#334155" stroke-width="1.8" marker-start="url(#ad)" marker-end="url(#ad)"/>
+
+  <!-- Run state -->
+  <rect x="60" y="478" width="300" height="116" rx="10" fill="#F1F5F9" stroke="#64748B" stroke-width="1.5"/>
+  <rect x="68" y="486" width="28" height="28" rx="7" fill="#E2E8F0"/>
+  <use href="#i-chip" x="73" y="491" width="18" height="18" color="#475569"/>
+  <text x="104" y="500" font-size="12" font-weight="700" fill="#1E293B">Process-Local Run State</text>
+  <text x="104" y="512" font-size="7.5" font-style="italic" fill="#64748B">in-memory only &#8212; no external persistence layer</text>
+  <text x="78" y="533" font-size="8.5" font-family="Consolas, Menlo, monospace" fill="#334155">run_id</text>
+  <text x="78" y="548" font-size="8.5" font-family="Consolas, Menlo, monospace" fill="#334155">goal</text>
+  <text x="78" y="563" font-size="8.5" font-family="Consolas, Menlo, monospace" fill="#334155">started_at</text>
+  <text x="78" y="578" font-size="8.5" font-family="Consolas, Menlo, monospace" fill="#334155">status &amp; phase</text>
+  <text x="204" y="533" font-size="8.5" font-family="Consolas, Menlo, monospace" fill="#334155">current attempt</text>
+  <text x="204" y="548" font-size="8.5" font-family="Consolas, Menlo, monospace" fill="#334155">evidence/action history</text>
+  <text x="204" y="563" font-size="8.5" font-family="Consolas, Menlo, monospace" fill="#334155">verification history</text>
+  <text x="204" y="578" font-size="8.5" font-family="Consolas, Menlo, monospace" fill="#334155">handoff reason</text>
+  <text x="60" y="606" font-size="8.5" font-style="italic" fill="#B91C1C">No database, queue or cache &#8212; state resets when the</text>
+  <text x="60" y="617" font-size="8.5" font-style="italic" fill="#B91C1C">backend process exits.</text>
+
+  <!-- run state <-> controller -->
+  <path d="M360 505 H398 V300 H428" fill="none" stroke="#64748B" stroke-width="1.6" marker-start="url(#asl)" marker-end="url(#asl)"/>
+  <text x="392" y="416" font-size="7.5" fill="#64748B" transform="rotate(-90 392 416)" text-anchor="middle">state read / write</text>
+
+  <!-- ======================= CENTER ZONE ======================= -->
+  <!-- Max attempts pill -->
+  <rect x="878" y="146" width="118" height="18" rx="9" fill="#7C3AED"/>
+  <text x="937" y="158.5" text-anchor="middle" font-size="9" font-weight="700" fill="#FFFFFF" letter-spacing="0.5">MAXIMUM 3 ATTEMPTS</text>
+
+  <!-- IncidentController -->
+  <rect x="432" y="170" width="576" height="150" rx="14" fill="#F5F3FF" stroke="#7C3AED" stroke-width="2.5"/>
+  <rect x="444" y="180" width="30" height="30" rx="8" fill="#EDE9FE"/>
+  <use href="#i-brain" x="449" y="185" width="20" height="20" color="#7C3AED"/>
+  <text x="482" y="200" font-size="16" font-weight="800" fill="#4C1D95">IncidentController</text>
+  <rect x="838" y="184" width="158" height="17" rx="8.5" fill="#FFFFFF" stroke="#C4B5FD"/>
+  <text x="917" y="195.5" text-anchor="middle" font-size="8" fill="#6D28D9">unique run_id &#183; explicit goal per run</text>
+  <text x="720" y="219" text-anchor="middle" font-size="9.5" font-style="italic" fill="#5B21B6">Goal: Restore the service to configured SLOs while respecting safety constraints.</text>
+
+  <!-- loop pills -->
+  <g font-size="8.6" font-weight="600" text-anchor="middle">
+    <rect x="444" y="236" width="63" height="32" rx="8" fill="#EDE9FE" stroke="#7C3AED" stroke-width="1.2"/>
+    <text x="475.5" y="249" fill="#4C1D95">Observe &amp;</text><text x="475.5" y="260" fill="#4C1D95">Detect</text>
+    <line x1="510" y1="252" x2="521" y2="252" stroke="#334155" stroke-width="1.6" marker-end="url(#ad)"/>
+    <rect x="525" y="236" width="63" height="32" rx="8" fill="#EDE9FE" stroke="#7C3AED" stroke-width="1.2"/>
+    <text x="556.5" y="255" fill="#4C1D95">Investigate</text>
+    <line x1="591" y1="252" x2="602" y2="252" stroke="#334155" stroke-width="1.6" marker-end="url(#ad)"/>
+    <rect x="606" y="236" width="63" height="32" rx="8" fill="#EDE9FE" stroke="#7C3AED" stroke-width="1.2"/>
+    <text x="637.5" y="255" fill="#4C1D95">Diagnose</text>
+    <line x1="672" y1="252" x2="683" y2="252" stroke="#334155" stroke-width="1.6" marker-end="url(#ad)"/>
+    <rect x="687" y="236" width="63" height="32" rx="8" fill="#EDE9FE" stroke="#7C3AED" stroke-width="1.2"/>
+    <text x="718.5" y="255" fill="#4C1D95">Decide</text>
+    <line x1="753" y1="252" x2="764" y2="252" stroke="#334155" stroke-width="1.6" marker-end="url(#ad)"/>
+    <rect x="768" y="236" width="63" height="32" rx="8" fill="#FEF3C7" stroke="#F59E0B" stroke-width="1.2"/>
+    <text x="799.5" y="249" fill="#92400E">Safety</text><text x="799.5" y="260" fill="#92400E">Check</text>
+    <line x1="834" y1="252" x2="845" y2="252" stroke="#334155" stroke-width="1.6" marker-end="url(#ad)"/>
+    <rect x="849" y="236" width="63" height="32" rx="8" fill="#F1F5F9" stroke="#64748B" stroke-width="1.2"/>
+    <text x="880.5" y="255" fill="#1E293B">Execute</text>
+    <line x1="915" y1="252" x2="926" y2="252" stroke="#334155" stroke-width="1.6" marker-end="url(#ad)"/>
+    <rect x="930" y="236" width="63" height="32" rx="8" fill="#DCFCE7" stroke="#16A34A" stroke-width="1.2"/>
+    <text x="961.5" y="255" fill="#14532D">Verify</text>
+  </g>
+  <path d="M961 268 V284 H476 V272" fill="none" stroke="#A78BFA" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#ap)"/>
+  <text x="720" y="302" text-anchor="middle" font-size="8.5" font-style="italic" fill="#7C3AED">closed control loop &#8212; bounded to 3 attempts per run</text>
+
+  <!-- Evidence retrieval -->
+  <rect x="432" y="344" width="212" height="160" rx="10" fill="#FFFFFF" stroke="#64748B" stroke-width="1.5"/>
+  <rect x="440" y="352" width="26" height="26" rx="7" fill="#F1F5F9"/>
+  <use href="#i-search" x="444" y="356" width="18" height="18" color="#475569"/>
+  <text x="472" y="364" font-size="10.5" font-weight="700" fill="#1E293B">Operational Evidence</text>
+  <text x="472" y="376" font-size="10.5" font-weight="700" fill="#1E293B">Retrieval</text>
+  <text x="446" y="394" font-size="8" fill="#475569">&#8226; Health &#160;&#160;&#8226; Error rate &#160;&#160;&#8226; Latency</text>
+  <text x="446" y="407" font-size="8" fill="#475569">&#8226; Current version</text>
+  <text x="446" y="420" font-size="8" fill="#475569">&#8226; Replica capacity</text>
+  <text x="446" y="433" font-size="8" fill="#475569">&#8226; Logs</text>
+  <text x="446" y="446" font-size="8" fill="#475569">&#8226; Deployment history</text>
+  <text x="446" y="459" font-size="8" fill="#475569">&#8226; Kubernetes events and workload state</text>
+  <line x1="442" y1="472" x2="634" y2="472" stroke="#E2E8F0"/>
+  <text x="446" y="486" font-size="7.8" font-style="italic" font-weight="600" fill="#0F766E">Tool-based retrieval from the live environment</text>
+  <text x="446" y="496" font-size="7.8" font-style="italic" font-weight="600" fill="#0F766E">&#8212; no vector database, no RAG.</text>
+
+  <!-- evidence -> investigate/diagnose -->
+  <line x1="556" y1="344" x2="556" y2="324" stroke="#334155" stroke-width="1.6" marker-end="url(#ad)"/>
+  <line x1="637" y1="344" x2="637" y2="324" stroke="#334155" stroke-width="1.6" marker-end="url(#ad)"/>
+  <!-- decide -> engine -->
+  <line x1="718" y1="320" x2="718" y2="340" stroke="#334155" stroke-width="1.6" marker-end="url(#ad)"/>
+  <!-- evidence -> engine -->
+  <line x1="644" y1="386" x2="662" y2="386" stroke="#334155" stroke-width="1.8" marker-end="url(#ad)"/>
+
+  <!-- Decision engine -->
+  <rect x="666" y="344" width="184" height="84" rx="10" fill="#FFFFFF" stroke="#7C3AED" stroke-width="1.8"/>
+  <rect x="674" y="352" width="24" height="24" rx="6" fill="#EDE9FE"/>
+  <use href="#i-gear" x="678" y="356" width="16" height="16" color="#7C3AED"/>
+  <rect x="784" y="351" width="58" height="14" rx="7" fill="#7C3AED"/>
+  <text x="813" y="361" text-anchor="middle" font-size="7.5" font-weight="700" fill="#FFFFFF">PRIMARY</text>
+  <text x="704" y="362" font-size="9.5" font-weight="700" fill="#4C1D95">Deterministic</text>
+  <text x="704" y="373" font-size="9.5" font-weight="700" fill="#4C1D95">Decision Engine</text>
+  <text x="682" y="389" font-size="8.3" font-family="Consolas, Menlo, monospace" fill="#334155">&#9656; restart_service</text>
+  <text x="682" y="401" font-size="8.3" font-family="Consolas, Menlo, monospace" fill="#334155">&#9656; rollback_deployment</text>
+  <text x="682" y="413" font-size="8.3" font-family="Consolas, Menlo, monospace" fill="#334155">&#9656; scale_service</text>
+  <text x="682" y="425" font-size="8.3" font-family="Consolas, Menlo, monospace" fill="#334155">&#9656; escalate</text>
+
+  <!-- Qwen advisory -->
+  <rect x="666" y="444" width="184" height="88" rx="10" fill="#FBFAFF" stroke="#7C3AED" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <rect x="674" y="452" width="24" height="24" rx="6" fill="#EDE9FE"/>
+  <use href="#i-spark" x="678" y="456" width="16" height="16" color="#7C3AED"/>
+  <text x="704" y="462" font-size="9.5" font-weight="700" fill="#6D28D9">Hugging Face / Qwen</text>
+  <text x="704" y="473" font-size="9.5" font-weight="700" fill="#6D28D9">Advisory</text>
+  <text x="676" y="490" font-size="8" fill="#475569">Proposes: action, target,</text>
+  <text x="676" y="500" font-size="8" fill="#475569">reason, confidence</text>
+  <rect x="676" y="507" width="44" height="13" rx="6.5" fill="#EDE9FE"/>
+  <text x="698" y="516.5" text-anchor="middle" font-size="7" font-weight="700" fill="#6D28D9">OPTIONAL</text>
+  <rect x="726" y="507" width="94" height="13" rx="6.5" fill="#EDE9FE"/>
+  <text x="773" y="516.5" text-anchor="middle" font-size="7" font-weight="700" fill="#6D28D9">NEVER EXECUTES TOOLS</text>
+  <text x="676" y="528" font-size="7.2" font-style="italic" fill="#7C3AED">deterministic fallback if advisory is unavailable</text>
+
+  <!-- engine -> arbitration rail -->
+  <path d="M666 410 H654 V582 H662" fill="none" stroke="#334155" stroke-width="1.8" marker-end="url(#ad)"/>
+  <!-- qwen -> arbitration -->
+  <line x1="758" y1="532" x2="758" y2="544" stroke="#7C3AED" stroke-width="1.6" stroke-dasharray="4 3" marker-end="url(#ap)"/>
+
+  <!-- Arbitration -->
+  <rect x="666" y="548" width="184" height="64" rx="10" fill="#FFFFFF" stroke="#7C3AED" stroke-width="1.8"/>
+  <rect x="674" y="556" width="22" height="22" rx="6" fill="#EDE9FE"/>
+  <use href="#i-scales" x="677" y="559" width="16" height="16" color="#7C3AED"/>
+  <text x="702" y="570" font-size="9.5" font-weight="700" fill="#4C1D95">Deterministic Arbitration</text>
+  <rect x="676" y="578" width="80" height="16" rx="8" fill="#DCFCE7" stroke="#16A34A" stroke-width="1"/>
+  <text x="716" y="589" text-anchor="middle" font-size="8" font-weight="700" fill="#166534">&#10003; ACCEPTED</text>
+  <rect x="762" y="578" width="80" height="16" rx="8" fill="#FEE2E2" stroke="#DC2626" stroke-width="1"/>
+  <text x="802" y="589" text-anchor="middle" font-size="8" font-weight="700" fill="#991B1B">&#10007; REJECTED</text>
+  <text x="676" y="606" font-size="7.2" font-style="italic" fill="#64748B">AI proposals validated against operational evidence</text>
+
+  <!-- arbitration -> safety -->
+  <line x1="850" y1="580" x2="866" y2="580" stroke="#334155" stroke-width="1.8" marker-end="url(#ad)"/>
+
+  <!-- Safety policy -->
+  <rect x="870" y="344" width="138" height="240" rx="10" fill="#FFFBEB" stroke="#F59E0B" stroke-width="2"/>
+  <rect x="878" y="352" width="26" height="26" rx="7" fill="#FEF3C7"/>
+  <use href="#i-shield" x="882" y="356" width="18" height="18" color="#D97706"/>
+  <text x="910" y="364" font-size="10.5" font-weight="700" fill="#92400E">Deterministic</text>
+  <text x="910" y="377" font-size="10.5" font-weight="700" fill="#92400E">Safety Policy</text>
+  <text x="880" y="399" font-size="7.8" fill="#78350F">&#8226; Action allow-list</text>
+  <text x="880" y="413" font-size="7.8" fill="#78350F">&#8226; Target validation</text>
+  <text x="880" y="427" font-size="7.8" fill="#78350F">&#8226; Replica bounds</text>
+  <text x="880" y="441" font-size="7.8" fill="#78350F">&#8226; incidentpilot namespace only</text>
+  <text x="880" y="455" font-size="7.8" fill="#78350F">&#8226; Managed resources only</text>
+  <text x="880" y="469" font-size="7.8" fill="#78350F">&#8226; Allowed local contexts only</text>
+  <line x1="880" y1="480" x2="998" y2="480" stroke="#FDE68A"/>
+  <text x="880" y="494" font-size="7.6" font-weight="700" font-style="italic" fill="#92400E">Every infrastructure mutation</text>
+  <text x="880" y="504" font-size="7.6" font-weight="700" font-style="italic" fill="#92400E">must pass this policy.</text>
+
+  <!-- safety -> tools corridor -->
+  <path d="M939 344 V332 H1030 V196 H1048" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#ad)"/>
+  <rect x="1002" y="298" width="56" height="15" rx="7.5" fill="#DCFCE7" stroke="#16A34A" stroke-width="1"/>
+  <text x="1030" y="308.5" text-anchor="middle" font-size="7.5" font-weight="700" fill="#166534">ALLOWED</text>
+
+  <!-- blocked branch -->
+  <line x1="939" y1="584" x2="939" y2="594" stroke="#DC2626" stroke-width="1.8" marker-end="url(#ar)"/>
+  <text x="946" y="592" font-size="7" fill="#DC2626">policy rejected</text>
+  <rect x="870" y="596" width="138" height="20" rx="10" fill="#DC2626"/>
+  <text x="939" y="609.5" text-anchor="middle" font-size="8.6" font-weight="700" fill="#FFFFFF">&#10007; BLOCKED &#8212; no mutation</text>
+
+  <!-- ======================= RIGHT ZONE ======================= -->
+  <!-- Remediation tools -->
+  <rect x="1052" y="166" width="488" height="60" rx="10" fill="#FFFFFF" stroke="#64748B" stroke-width="1.5"/>
+  <text x="1064" y="181" font-size="11" font-weight="700" fill="#1E293B">Bounded Remediation Tools</text>
+  <g font-size="8.6" font-weight="600" fill="#334155">
+    <rect x="1064" y="188" width="108" height="28" rx="7" fill="#F1F5F9" stroke="#CBD5E1"/>
+    <use href="#i-pulse" x="1071" y="194" width="16" height="16" color="#475569"/>
+    <text x="1092" y="205">Diagnostics</text>
+    <rect x="1184" y="188" width="108" height="28" rx="7" fill="#F1F5F9" stroke="#CBD5E1"/>
+    <use href="#i-rcw" x="1191" y="194" width="16" height="16" color="#475569"/>
+    <text x="1212" y="205">Restart</text>
+    <rect x="1304" y="188" width="108" height="28" rx="7" fill="#F1F5F9" stroke="#CBD5E1"/>
+    <use href="#i-rccw" x="1311" y="194" width="16" height="16" color="#475569"/>
+    <text x="1332" y="205">Rollback</text>
+    <rect x="1424" y="188" width="108" height="28" rx="7" fill="#F1F5F9" stroke="#CBD5E1"/>
+    <use href="#i-expand" x="1431" y="194" width="16" height="16" color="#475569"/>
+    <text x="1452" y="205">Scale</text>
+  </g>
+
+  <line x1="1296" y1="226" x2="1296" y2="236" stroke="#334155" stroke-width="1.8" marker-end="url(#ad)"/>
+
+  <!-- Infrastructure interface -->
+  <rect x="1052" y="238" width="488" height="38" rx="10" fill="#F1F5F9" stroke="#64748B" stroke-width="1.5"/>
+  <use href="#i-layers" x="1062" y="246" width="20" height="20" color="#475569"/>
+  <text x="1090" y="255" font-size="11" font-weight="700" fill="#1E293B">Infrastructure Interface</text>
+  <text x="1090" y="268" font-size="7.6" font-style="italic" fill="#64748B">single contract &#8212; two interchangeable implementations</text>
+  <text x="1532" y="260" text-anchor="end" font-size="8.5" font-family="Consolas, Menlo, monospace" fill="#64748B">backend/infrastructure</text>
+
+  <line x1="1168" y1="276" x2="1168" y2="286" stroke="#334155" stroke-width="1.8" marker-end="url(#ad)"/>
+  <line x1="1420" y1="276" x2="1420" y2="286" stroke="#334155" stroke-width="1.8" marker-end="url(#ad)"/>
+
+  <!-- Simulator -->
+  <rect x="1052" y="290" width="232" height="140" rx="10" fill="#FFFFFF" stroke="#64748B" stroke-width="1.5"/>
+  <rect x="1060" y="298" width="24" height="24" rx="6" fill="#F1F5F9"/>
+  <use href="#i-flask" x="1064" y="302" width="16" height="16" color="#475569"/>
+  <text x="1090" y="314" font-size="10" font-weight="700" fill="#1E293B">SimulatorInfrastructure</text>
+  <rect x="1060" y="328" width="78" height="14" rx="7" fill="#E0F2FE" stroke="#0284C7" stroke-width="0.8"/>
+  <text x="1099" y="338" text-anchor="middle" font-size="7.5" font-weight="700" fill="#0369A1">DEFAULT MODE</text>
+  <text x="1062" y="360" font-size="8.4" fill="#475569">&#8226; Deterministic in-memory service</text>
+  <text x="1062" y="375" font-size="8.4" fill="#475569">&#8226; Controlled outage scenarios</text>
+  <text x="1062" y="390" font-size="8.4" fill="#475569">&#8226; No external infrastructure required</text>
+  <text x="1062" y="418" font-size="7.4" font-style="italic" fill="#64748B">same telemetry contract as Kubernetes mode</text>
+
+  <!-- Kubernetes -->
+  <rect x="1300" y="290" width="240" height="140" rx="10" fill="#FFFFFF" stroke="#64748B" stroke-width="1.5"/>
+  <rect x="1308" y="298" width="24" height="24" rx="6" fill="#F1F5F9"/>
+  <use href="#i-hex" x="1312" y="302" width="16" height="16" color="#475569"/>
+  <text x="1338" y="314" font-size="10" font-weight="700" fill="#1E293B">KubernetesInfrastructure</text>
+  <rect x="1310" y="322" width="220" height="16" rx="8" fill="#F1F5F9" stroke="#CBD5E1"/>
+  <text x="1420" y="333" text-anchor="middle" font-size="7.8" font-weight="600" fill="#475569">via Restricted KubernetesGateway</text>
+  <rect x="1310" y="342" width="220" height="76" rx="8" fill="#F8FAFC" stroke="#CBD5E1"/>
+  <text x="1318" y="354" font-size="8.4" font-weight="700" fill="#1E293B">Local Kubernetes Cluster</text>
+  <text x="1318" y="365" font-size="7.4" fill="#475569">kind &#183; minikube &#183; Docker Desktop</text>
+  <text x="1318" y="376" font-size="7.4" font-family="Consolas, Menlo, monospace" fill="#475569">namespace: incidentpilot</text>
+  <text x="1318" y="389" font-size="7.2" fill="#64748B">&#8226; Service probes &#160;&#8226; Pods &amp; readiness</text>
+  <text x="1318" y="399" font-size="7.2" fill="#64748B">&#8226; Logs &amp; events &#160;&#8226; ReplicaSets &amp; deploy history</text>
+  <text x="1318" y="409" font-size="7.2" fill="#64748B">&#8226; Restart / roll back / scale Deployment</text>
+  <text x="1318" y="427" font-size="7.4" font-style="italic" fill="#64748B">local cluster &#8212; not a production control plane</text>
+
+  <!-- fresh telemetry -->
+  <path d="M1168 430 L1208 452" fill="none" stroke="#334155" stroke-width="1.8" marker-end="url(#ad)"/>
+  <path d="M1420 430 L1384 452" fill="none" stroke="#334155" stroke-width="1.8" marker-end="url(#ad)"/>
+  <rect x="1252" y="434" width="88" height="15" rx="7.5" fill="#FFFFFF" stroke="#16A34A" stroke-width="1"/>
+  <text x="1296" y="444.5" text-anchor="middle" font-size="7.8" font-weight="700" fill="#166534">FRESH TELEMETRY</text>
+
+  <!-- Verifier -->
+  <rect x="1120" y="456" width="352" height="92" rx="10" fill="#F0FDF4" stroke="#16A34A" stroke-width="2"/>
+  <rect x="1128" y="464" width="26" height="26" rx="7" fill="#DCFCE7"/>
+  <use href="#i-check" x="1132" y="468" width="18" height="18" color="#16A34A"/>
+  <text x="1162" y="481" font-size="12" font-weight="700" fill="#14532D">Independent Recovery Verifier</text>
+  <text x="1130" y="500" font-size="8.4" fill="#166534">Inputs: multiple fresh samples &#183; health check &#183; capacity &#183; ready replicas</text>
+  <rect x="1130" y="508" width="332" height="26" rx="7" fill="#DCFCE7" stroke="#86EFAC"/>
+  <text x="1296" y="525" text-anchor="middle" font-size="8.6" font-weight="700" fill="#14532D">Recovery SLO: error rate &#8804; 5% &#183; latency &#8804; 200 ms &#183; health check passes</text>
+
+  <!-- outcome arrows -->
+  <path d="M1160 548 L1122 568" fill="none" stroke="#16A34A" stroke-width="1.8" marker-end="url(#ag)"/>
+  <text x="1118" y="562" text-anchor="end" font-size="7.4" fill="#166534">passed</text>
+  <line x1="1256" y1="548" x2="1256" y2="568" stroke="#D97706" stroke-width="1.8" marker-end="url(#aa)"/>
+  <text x="1262" y="561" font-size="7.4" fill="#B45309">failed &#183; attempts remain</text>
+  <path d="M1400 548 L1436 568" fill="none" stroke="#DC2626" stroke-width="1.8" marker-end="url(#ar)"/>
+  <text x="1442" y="556" font-size="7.4" fill="#DC2626">attempts exhausted or</text>
+  <text x="1442" y="565" font-size="7.4" fill="#DC2626">evidence unsupported</text>
+
+  <!-- outcome chips -->
+  <rect x="1052" y="572" width="120" height="40" rx="10" fill="#16A34A"/>
+  <text x="1112" y="589" text-anchor="middle" font-size="11" font-weight="800" fill="#FFFFFF">&#10003; RESOLVED</text>
+  <text x="1112" y="603" text-anchor="middle" font-size="7.4" fill="#DCFCE7">service recovered &#8212; SLOs met</text>
+
+  <rect x="1196" y="572" width="120" height="40" rx="10" fill="#FEF3C7" stroke="#D97706" stroke-width="1.5"/>
+  <text x="1256" y="589" text-anchor="middle" font-size="11" font-weight="800" fill="#92400E">ADAPT</text>
+  <text x="1256" y="603" text-anchor="middle" font-size="7.4" fill="#92400E">replan with fresh evidence</text>
+
+  <rect x="1340" y="572" width="200" height="40" rx="10" fill="#DC2626"/>
+  <use href="#i-alert" x="1352" y="582" width="18" height="18" color="#FFFFFF"/>
+  <text x="1448" y="589" text-anchor="middle" font-size="11" font-weight="800" fill="#FFFFFF">ESCALATED</text>
+  <text x="1448" y="603" text-anchor="middle" font-size="7.4" fill="#FEE2E2">Human Investigation Required</text>
+
+  <!-- feedback loop: ADAPT -> Observe & Detect -->
+  <path d="M1256 612 V634 H424 V252 H428" fill="none" stroke="#D97706" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#aa)"/>
+  <text x="840" y="629" text-anchor="middle" font-size="9.5" font-style="italic" font-weight="600" fill="#B45309">Re-observe and collect fresh evidence</text>
+
+  <!-- escalation: ESCALATED -> Human Operator -->
+  <path d="M1540 592 H1560 V134 H52 V182 H132" fill="none" stroke="#DC2626" stroke-width="1.6" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+  <text x="1180" y="130" font-size="8" font-weight="600" fill="#DC2626">handoff to human operator</text>
+
+  <!-- ======================= BOTTOM STRIP ======================= -->
+  <rect x="44" y="646" width="1512" height="210" rx="14" fill="#F7F6FD" stroke="#C7C3E8" stroke-width="1.3"/>
+  <text x="64" y="674" font-size="12.5" font-weight="700" letter-spacing="1" fill="#4C1D95">ADAPTIVE FAILURE WALKTHROUGH</text>
+  <text x="1536" y="674" text-anchor="end" font-size="9.5" font-style="italic" font-weight="600" fill="#7C3AED">Attempt 2 comes from fresh evidence &#8212; not from the attempt number.</text>
+
+  <!-- cards -->
+  <g>
+    <!-- 1 -->
+    <rect x="76" y="704" width="160" height="112" rx="10" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.3"/>
+    <path d="M76 714a10 10 0 0 1 10-10h140a10 10 0 0 1 10 10v10H76z" fill="#64748B"/>
+    <text x="156" y="718" text-anchor="middle" font-size="7.6" font-weight="700" fill="#FFFFFF" letter-spacing="0.5">ATTEMPT 1 &#183; EVIDENCE</text>
+    <text x="156" y="752" text-anchor="middle" font-size="9.5" fill="#1E293B">Transient failure</text>
+    <text x="156" y="766" text-anchor="middle" font-size="9.5" fill="#1E293B">evidence</text>
+    <line x1="240" y1="760" x2="256" y2="760" stroke="#334155" stroke-width="1.8" marker-end="url(#ad)"/>
+    <!-- 2 -->
+    <rect x="260" y="704" width="160" height="112" rx="10" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.3"/>
+    <path d="M260 714a10 10 0 0 1 10-10h140a10 10 0 0 1 10 10v10H260z" fill="#7C3AED"/>
+    <text x="340" y="718" text-anchor="middle" font-size="7.6" font-weight="700" fill="#FFFFFF" letter-spacing="0.5">DECISION</text>
+    <text x="340" y="758" text-anchor="middle" font-size="9.5" font-family="Consolas, Menlo, monospace" fill="#4C1D95">restart_service</text>
+    <text x="340" y="800" text-anchor="middle" font-size="7.2" font-style="italic" fill="#64748B">via deterministic engine</text>
+    <line x1="424" y1="760" x2="440" y2="760" stroke="#334155" stroke-width="1.8" marker-end="url(#ad)"/>
+    <!-- 3 -->
+    <rect x="444" y="704" width="160" height="112" rx="10" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.3"/>
+    <path d="M444 714a10 10 0 0 1 10-10h140a10 10 0 0 1 10 10v10H444z" fill="#64748B"/>
+    <text x="524" y="718" text-anchor="middle" font-size="7.6" font-weight="700" fill="#FFFFFF" letter-spacing="0.5">EXECUTION</text>
+    <text x="524" y="756" text-anchor="middle" font-size="9.5" fill="#1E293B">Command succeeded &#10003;</text>
+    <text x="524" y="800" text-anchor="middle" font-size="7.2" font-style="italic" font-weight="700" fill="#B45309">command success &#8800; recovery</text>
+    <line x1="608" y1="760" x2="624" y2="760" stroke="#334155" stroke-width="1.8" marker-end="url(#ad)"/>
+    <!-- 4 -->
+    <rect x="628" y="704" width="160" height="112" rx="10" fill="#FFFFFF" stroke="#FCA5A5" stroke-width="1.3"/>
+    <path d="M628 714a10 10 0 0 1 10-10h140a10 10 0 0 1 10 10v10H628z" fill="#DC2626"/>
+    <text x="708" y="718" text-anchor="middle" font-size="7.6" font-weight="700" fill="#FFFFFF" letter-spacing="0.5">VERIFICATION</text>
+    <text x="708" y="754" text-anchor="middle" font-size="11" font-weight="800" fill="#DC2626">FAILED &#10007;</text>
+    <text x="708" y="770" text-anchor="middle" font-size="8" fill="#991B1B">service still degraded</text>
+    <line x1="792" y1="760" x2="808" y2="760" stroke="#D97706" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#aa)"/>
+    <!-- 5 -->
+    <rect x="812" y="704" width="160" height="112" rx="10" fill="#FFFBEB" stroke="#F59E0B" stroke-width="1.5"/>
+    <path d="M812 714a10 10 0 0 1 10-10h140a10 10 0 0 1 10 10v10H812z" fill="#D97706"/>
+    <text x="892" y="718" text-anchor="middle" font-size="7.6" font-weight="700" fill="#FFFFFF" letter-spacing="0.5">FRESH OBSERVATION</text>
+    <text x="892" y="752" text-anchor="middle" font-size="9.5" fill="#78350F">New evidence:</text>
+    <text x="892" y="766" text-anchor="middle" font-size="9.5" font-weight="700" fill="#92400E">resource pressure</text>
+    <text x="892" y="800" text-anchor="middle" font-size="7.2" font-style="italic" fill="#B45309">adaptive replanning</text>
+    <line x1="976" y1="760" x2="992" y2="760" stroke="#334155" stroke-width="1.8" marker-end="url(#ad)"/>
+    <!-- 6 -->
+    <rect x="996" y="704" width="160" height="112" rx="10" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.3"/>
+    <path d="M996 714a10 10 0 0 1 10-10h140a10 10 0 0 1 10 10v10H996z" fill="#7C3AED"/>
+    <text x="1076" y="718" text-anchor="middle" font-size="7.6" font-weight="700" fill="#FFFFFF" letter-spacing="0.5">ATTEMPT 2 &#183; DECISION</text>
+    <text x="1076" y="752" text-anchor="middle" font-size="9.5" font-family="Consolas, Menlo, monospace" fill="#4C1D95">scale_service</text>
+    <text x="1076" y="766" text-anchor="middle" font-size="9.5" font-family="Consolas, Menlo, monospace" fill="#4C1D95">1 &#8594; 3 replicas</text>
+    <line x1="1160" y1="760" x2="1176" y2="760" stroke="#334155" stroke-width="1.8" marker-end="url(#ad)"/>
+    <!-- 7 -->
+    <rect x="1180" y="704" width="160" height="112" rx="10" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.3"/>
+    <path d="M1180 714a10 10 0 0 1 10-10h140a10 10 0 0 1 10 10v10H1180z" fill="#64748B"/>
+    <text x="1260" y="718" text-anchor="middle" font-size="7.6" font-weight="700" fill="#FFFFFF" letter-spacing="0.5">EXECUTION</text>
+    <text x="1260" y="758" text-anchor="middle" font-size="9.5" fill="#1E293B">Command succeeded &#10003;</text>
+    <line x1="1344" y1="760" x2="1360" y2="760" stroke="#334155" stroke-width="1.8" marker-end="url(#ad)"/>
+    <!-- 8 -->
+    <rect x="1364" y="704" width="160" height="112" rx="10" fill="#F0FDF4" stroke="#16A34A" stroke-width="1.5"/>
+    <path d="M1364 714a10 10 0 0 1 10-10h140a10 10 0 0 1 10 10v10H1364z" fill="#16A34A"/>
+    <text x="1444" y="718" text-anchor="middle" font-size="7.6" font-weight="700" fill="#FFFFFF" letter-spacing="0.5">VERIFICATION</text>
+    <text x="1444" y="750" text-anchor="middle" font-size="11" font-weight="800" fill="#15803D">PASSED &#10003;</text>
+    <rect x="1404" y="760" width="80" height="18" rx="9" fill="#16A34A"/>
+    <text x="1444" y="772.5" text-anchor="middle" font-size="8.6" font-weight="800" fill="#FFFFFF">RESOLVED</text>
+  </g>
+</svg>
