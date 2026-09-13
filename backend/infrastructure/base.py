@@ -1,41 +1,39 @@
-"""The execution-environment contract IncidentController operates through.
+"""
+                  'THE DOCTOR'S BRAIN'
+Execution environment contract used by IncidentController.
 
-The controller observes and acts only through this interface, so the same
-observe -> investigate -> diagnose -> decide -> safety -> act -> verify loop
-runs unchanged against the in-memory simulator or a local Kubernetes cluster.
+The controller observes and acts only through this interface. This keeps the
+same observe > investigate > diagnose > decide > safety > act > verify loop
+working with both the in-memory simulator and a local Kubernetes cluster.
 
-Every method returns plain, JSON-friendly data in the shapes the decision
-engine and dashboard already understand:
+Every method returns plain JSON data in the format already used by the
+decision engine and dashboard:
 
-* ``get_metrics()``            -> ``{"status", "error_rate", "latency_ms", ...}``
-* ``check_health()``           -> ``{"status", "is_healthy"}``
-* ``get_current_version()``    -> ``"v41"``
-* ``get_capacity()``           -> ``{"replicas", "utilization", "telemetry"}``
-* ``query_logs()``             -> ``[{"timestamp", "level", "message"}, ...]``
-* ``get_deployment_history()`` -> ``[{"version", "order", "timestamp", "status"}, ...]``
+    get_metrics()            -> {"status", "error_rate", "latency_ms", ...}
+    check_health()           -> {"status", "is_healthy"}
+    get_current_version()    -> "v41"
+    get_capacity()           -> {"replicas", "utilization", "telemetry"}
+    query_logs()             -> [{"timestamp", "level", "message"}, ...]
+    get_deployment_history() -> [{"version", "order", "timestamp", "status"}, ...]
 
-Remediation methods report only on the action itself (``action``,
-``success``, ``status``, ``message``) and never claim the incident is
-resolved; recovery is always verified separately from fresh telemetry.
+Remediation methods only report the action itself, including "action",
+"success", "status", and "message". They never claim that the incident is
+resolved. Recovery is always verified separately using fresh telemetry.
 
-Implementations expose a fixed set of operations. There is deliberately no
-generic "run a command" or "apply a resource" capability.
+Implementations expose a fixed set of operations. There is no generic
+"run a command" or "apply a resource" capability.
+
 """
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List
 
-
 class InfrastructureError(RuntimeError):
-    """The environment is misconfigured or could not be reached."""
-
-
+    """The environment is not configured correctly or could not be reached."""
 class InfrastructureSafetyError(InfrastructureError):
-    """An operation was refused because it falls outside the permitted scope."""
-
-
+    """The operation was refused because it is outside the permitted scope."""
 class Infrastructure(ABC):
-    """An environment IncidentController can observe and remediate."""
+    """An environment that IncidentController can monitor and fix."""
 
     #: Short identifier, e.g. "simulator" or "kubernetes".
     name: str = "abstract"
@@ -45,35 +43,31 @@ class Infrastructure(ABC):
 
     @abstractmethod
     def describe(self) -> Dict[str, Any]:
-        """Identify the environment and its target, without contacting it."""
-
-    # -- Observation -------------------------------------------------------
+        """Identify the environment and its target without contacting it."""
 
     @abstractmethod
     def get_metrics(self) -> Dict[str, Any]:
-        """Current service-level indicators."""
+        """Get the current service-level metrics."""
 
     @abstractmethod
     def check_health(self) -> Dict[str, Any]:
-        """Whether the service is currently healthy."""
+        """Check whether the service is currently healthy."""
 
     @abstractmethod
     def get_current_version(self) -> str:
-        """The version currently deployed."""
+        """Get the version that is currently deployed."""
 
     @abstractmethod
     def get_capacity(self) -> Dict[str, Any]:
-        """Provisioned replicas and, where measurable, utilization."""
+        """Get the number of replicas and available utilization data."""
 
     @abstractmethod
     def query_logs(self) -> List[Dict[str, str]]:
-        """Recent diagnostic log entries."""
+        """Get recent logs for troubleshooting."""
 
     @abstractmethod
     def get_deployment_history(self) -> List[Dict[str, Any]]:
-        """Previously deployed versions, with ``order`` increasing with recency."""
-
-    # -- Remediation -------------------------------------------------------
+        """Get previously deployed versions, with ``order`` increasing with recency."""
 
     @abstractmethod
     def restart_service(self) -> Dict[str, Any]:
