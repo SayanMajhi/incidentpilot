@@ -41,9 +41,11 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header>
       <div className="brand-cluster">
-        <div className="brand-icon" aria-hidden="true">
-          IP
-        </div>
+        <img 
+  src="/logo.gif" 
+  alt="IncidentPilot" 
+  style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover' }} 
+/>
         <div className="brand-titles">
           <h1>IncidentPilot</h1>
           <p>Autonomous Incident Response System</p>

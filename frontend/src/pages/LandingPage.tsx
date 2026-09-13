@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect,useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/landing.css';
 
@@ -9,24 +9,100 @@ const RESPONSE_STAGES = [
   { label: 'Act safely', icon: '▶' },
   { label: 'Verify', icon: '◈' },
   { label: 'Adapt', icon: '↻' },
+  { label: 'Recovered', icon: '✓' },
+];
+const SIMULATION_STEPS = [
+  { index: 0, status: 'Observing anomaly and telemetry breach…', isFailed: false, isSuccess: false },
+  { index: 1, status: 'Investigating deployment history and logs…', isFailed: false, isSuccess: false },
+  { index: 2, status: 'Deciding remediation: Restart service…', isFailed: false, isSuccess: false },
+  { index: 3, status: 'Executing remediation with safety policy…', isFailed: false, isSuccess: false },
+  { index: 4, status: 'Verifying recovery: Telemetry still unhealthy (Verification Failed ✕)', isFailed: true, isSuccess: false },
+  { index: 5, status: 'Adapting: Re-investigating with failure evidence ↻', isFailed: false, isSuccess: false },
+  // Second Loop
+  { index: 1, status: 'Investigating deeper: Resource saturation under load detected…', isFailed: false, isSuccess: false },
+  { index: 2, status: 'Deciding new strategy: Scale service to 3 replicas…', isFailed: false, isSuccess: false },
+  { index: 3, status: 'Executing safe scale-out remediation…', isFailed: false, isSuccess: false },
+  { index: 4, status: 'Verifying recovery: Metrics healthy & latency recovered (Passed ✓)', isFailed: false, isSuccess: false },
+  // Final Success Step:
+  { index: 6, status: 'Incident Recovered — Autonomous resolution successful! ✓', isFailed: false, isSuccess: true },
 ];
 
 function ResponseLifecyclePreview() {
+  const [stepCursor, setStepCursor] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setStepCursor((prev) => (prev + 1) % SIMULATION_STEPS.length);
+    }, 2000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const current = SIMULATION_STEPS[stepCursor];
+  const isLoopingBack = stepCursor === 5; // Adapt step trigger
+
   return (
     <figure className="pipeline-container lifecycle-preview">
-      <div className="pipeline-wrapper" aria-label="Illustrative incident response lifecycle">
-        {RESPONSE_STAGES.map((stage, index) => (
-          <div className="lifecycle-stage" key={stage.label}>
-            <div className="pipeline-node lifecycle-node">
-              <div className="pipeline-node-circle" aria-hidden="true">{stage.icon}</div>
-              <span className="pipeline-node-label">{stage.label}</span>
-            </div>
-            {index < RESPONSE_STAGES.length - 1 && <div className="pipeline-connector lifecycle-connector" />}
-          </div>
-        ))}
+      {/* Reverse loop arrow from Adapt back to Investigate */}
+      <div className={`pipeline-loopback-arc ${isLoopingBack ? 'active' : ''}`}>
+        <span className="loopback-label">↻ Feedback Loop to Investigate</span>
+        <svg viewBox="0 0 540 60" className="loopback-svg">
+          <path
+            d="M 500 50 C 500 10, 110 10, 110 45"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeDasharray="6 4"
+          />
+          <polygon points="105,42 110,54 115,42" fill="currentColor" />
+        </svg>
       </div>
-      <figcaption className="pipeline-status lifecycle-caption">
-        Illustrative response lifecycle — live status is shown in the dashboard.
+
+  <div className="pipeline-wrapper" aria-label="Illustrative incident response lifecycle">
+        {RESPONSE_STAGES.map((stage, idx) => {
+          const isActive = idx === current.index;
+          const isFailed = isActive && current.isFailed;
+          const isRecoveredActive = isActive && current.isSuccess;
+          // Arrow tabhi dikhega jab current stage chal raha hoga
+          const isCurrentActiveArrow = idx === current.index && !current.isFailed && !current.isSuccess;
+          const isPassed = current.isSuccess ? true : idx < current.index;
+
+          return (
+            <div className="lifecycle-stage" key={stage.label}>
+              <div
+                className={`pipeline-node lifecycle-node ${isActive ? 'active' : ''} ${
+                  isFailed ? 'node-failed' : ''
+                } ${isRecoveredActive ? 'node-recovered' : ''} ${isPassed ? 'passed' : ''}`}
+              >
+                <div className="pipeline-node-circle" aria-hidden="true">
+                  {stage.icon}
+                </div>
+                <span className="pipeline-node-label">{stage.label}</span>
+              </div>
+              {idx < RESPONSE_STAGES.length - 1 && (
+                <div
+                  className={`pipeline-connector-box ${isPassed ? 'passed' : ''} ${
+                    isCurrentActiveArrow ? 'flowing' : ''
+                  }`}
+                >
+                  <div className="pipeline-connector" />
+                  <span className="pipeline-arrow-head">›</span>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <figcaption
+        className={`pipeline-status lifecycle-caption ${
+          current.isFailed
+            ? 'status-failure-text'
+            : current.isSuccess
+            ? 'status-success-text'
+            : 'status-live-text'
+        }`}
+      >
+        {current.status}
       </figcaption>
     </figure>
   );
@@ -105,10 +181,14 @@ export default function LandingPage() {
   return (
     <div className="landing-page">
       <nav className="landing-nav">
-        <div className="landing-nav-brand">
-          <div className="brand-icon">⚡</div>
-          IncidentPilot
-        </div>
+       <div className="landing-nav-brand">
+  <img 
+    src="/logo.gif" 
+    alt="IncidentPilot" 
+    style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover' }} 
+  />
+  IncidentPilot
+</div>
         <button className="landing-nav-cta" onClick={handleLaunch}>
           Launch Dashboard
         </button>
