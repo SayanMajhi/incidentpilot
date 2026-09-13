@@ -1,37 +1,5 @@
 from backend.shared import slo
-
-
-class VerificationResult:
-    """
-    Represents the result of an incident recovery verification.
-
-    The result is kept as a small object internally, but provides
-    dictionary conversion and a readable representation so it can
-    safely be returned by APIs, printed in the terminal, or stored
-    in execution history.
-    """
-
-    def __init__(self, recovered, reason, telemetry=None):
-        self.recovered = bool(recovered)
-        self.reason = str(reason)
-        # The fresh post-action telemetry the verdict was based on, if any.
-        self.telemetry = telemetry
-
-    def to_dict(self):
-        """
-        Convert the verification result into a JSON-friendly dictionary.
-        """
-        return {
-            "recovered": self.recovered,
-            "reason": self.reason,
-            "telemetry": self.telemetry,
-        }
-
-    def __repr__(self):
-        """
-        Make pprint()/debug output readable.
-        """
-        return repr(self.to_dict())
+from backend.models import VerificationResult
 
 
 class Verifier:

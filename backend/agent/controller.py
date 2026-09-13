@@ -461,9 +461,11 @@ class IncidentController:
         result = verifier.verify_sustained(samples)
 
         if result.recovered and not health.get("is_healthy", False):
-            result.recovered = False
-            result.reason = "Health check still reports the service as unhealthy"
+            result = result.with_failed_status(
+                "Health check still reports the service as unhealthy",
+            )
 
+        result.metrics_after = dict(samples[-1])
         result.telemetry = {
             "metrics": samples[-1],
             "health": health,
