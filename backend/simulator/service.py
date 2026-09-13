@@ -35,8 +35,6 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "Accept"],
 )
-# Status keywords. Every numeric threshold and version below is shared with
-# the agent, the safety policy and the dashboard via backend.shared.slo.
 HEALTHY_STATUS: Literal["healthy"] = "healthy"
 DOWN_STATUS: Literal["down"] = "down"
 HEALTHY_ERROR_RATE: float = slo.HEALTHY_ERROR_RATE
@@ -50,9 +48,7 @@ BAD_DEPLOYMENT_VERSION: str = slo.BAD_DEPLOYMENT_VERSION
 BASELINE_LOAD_UNITS: float = 0.6
 ADAPTIVE_LOAD_UNITS: float = 2.5
 
-#In memory service state
 class ServiceState(BaseModel):
-    """represents the current in memory state of the smulated service"""
     status: Literal["healthy", "down"]
     error_rate: float
     latency_ms: int
@@ -68,10 +64,6 @@ class ServiceState(BaseModel):
     _replicas: int = PrivateAttr(default=slo.MIN_REPLICAS)
 
 def _initial_state() -> ServiceState:
-    """build the initial health state of the simulated service,
-    returns:
-        ServiceState:a freshly constructed healthy state.
-    """
     return ServiceState(
         status=HEALTHY_STATUS,
         error_rate=HEALTHY_ERROR_RATE,
@@ -86,15 +78,10 @@ state: ServiceState = _initial_state()
 active_scenario = "healthy"
 
 
-# ============================================================
-# Causal fault model
-# ============================================================
-#
 # Symptoms (status, error rate, latency, logs) are always *derived* from the
 # hidden causes below; nothing sets them to a scripted value per scenario.
 # That keeps cause and effect honest regardless of which remediation an agent
 # tries, or in what order:
-#
 #   transient fault       hung workers; cleared by a restart
 #   deployment regression the tracked bad version is running; cleared by
 #                         rolling back away from it
@@ -259,41 +246,35 @@ def _begin_scenario(scenario: str) -> None:
     _clear_faults()
     _reset_run_state()
 
-# Response models
+
 class HealthResponse(BaseModel):
-    """response model for the /health endpoint"""
     status: Literal["healthy", "down"]
 
+
 class MetricsResponse(BaseModel):
-    """response model for the /metrics endpoint"""
     error_rate: float
     latency_ms: int
     status: Literal["healthy", "down"]
     cpu_percent: int
     memory_percent: int
+
+
 class VersionResponse(BaseModel):
-    """response model for the/version endpoint"""
     current_version: str
+
+
 class SimulationActionResponse(BaseModel):
-    """response model returned after a simulation action is applied"""
     message: str
     state: ServiceState
-#endpoint
+
+
 @app.get("/health", response_model=HealthResponse, dependencies=[Depends(require_simulator)])
 def get_health() -> HealthResponse:
-    """returns the current health status of the simulated service
-
-    returns:
-        HealthResponse:the current status "healthy" / "down"
-    """
     return HealthResponse(status=state.status)
+
+
 @app.get("/metrics", response_model=MetricsResponse, dependencies=[Depends(require_simulator)])
 def get_metrics() -> MetricsResponse:
-    """return the current operational metrics of the simulated service
-
-    returns:
-        MetricsResponse:error_rate,latency_ms,and status.
-    """
     return MetricsResponse(
         error_rate=state.error_rate,
         latency_ms=state.latency_ms,
@@ -302,26 +283,15 @@ def get_metrics() -> MetricsResponse:
         memory_percent=memory_percent(),
     )
 
+
 @app.get("/version", response_model=VersionResponse, dependencies=[Depends(require_simulator)])
 def get_version() -> VersionResponse:
-    """return the current deployment version of the simulated service
-    returns:
-        VersionResponse:the current deployed version string
-    """
     return VersionResponse(current_version=state.current_version)
+
+
 @app.post("/simulate/outage", response_model=SimulationActionResponse, dependencies=[Depends(require_simulator)])
 def simulate_outage() -> SimulationActionResponse:
-    """simulate a production outage.
-
-    sets the service into a "down" state with
-    abnormal error rate and latency values the deployed version is
-    left unchanged,since an outage is not assumed to be caused by a
-    deployment in this simulation.
-
-    returns:
-        SimulationActionResponse:a confirmation message and the
-        resulting service state.
-    """
+    """Simulate a transient outage without changing the deployed version."""
     _begin_scenario("generic_outage")
     state._transient_fault = True
     _recompute_service_health()
@@ -332,22 +302,7 @@ def simulate_outage() -> SimulationActionResponse:
 
 
 def clear_transient_failure() -> bool:
-    """Clear transient unhealthy state, the way a process restart would.
-
-    This is the simulator-internal effect of a restart, called by
-    ``backend.tools.remediation.restart_service``. It is deliberately NOT an
-    HTTP endpoint: nothing outside the remediation layer should be able to
-    declare the service healthy.
-
-    Cause and effect is preserved. A restart clears hung workers, but it
-    cannot fix an incident with a different cause: a bad deployment that is
-    still running, or demand that exceeds provisioned capacity, survives the
-    restart and the service stays unhealthy.
-
-    Returns:
-        bool: True if the restart actually restored the healthy baseline,
-        False if an incident cause survived the restart.
-    """
+    """Clear hung workers; other active causes remain unhealthy."""
     state._transient_fault = False
     _recompute_service_health()
     return state.status == HEALTHY_STATUS
@@ -355,12 +310,7 @@ def clear_transient_failure() -> bool:
 
 @app.post("/simulate/recover", response_model=SimulationActionResponse, dependencies=[Depends(require_simulator)])
 def simulate_recover() -> SimulationActionResponse:
-    """Restore the simulated service to its healthy baseline state.
-
-    Resets status, error_rate and latency_ms to their healthy baseline
-    values and clears the active scenario. The deployed version is left
-    unchanged.
-    """
+    """Restore healthy simulator state without changing the version."""
     _begin_scenario("healthy")
     _recompute_service_health()
     return SimulationActionResponse(
@@ -371,21 +321,7 @@ def simulate_recover() -> SimulationActionResponse:
 
 @app.post("/simulate/bad-deployment", response_model=SimulationActionResponse, dependencies=[Depends(require_simulator)])
 def simulate_bad_deployment() -> SimulationActionResponse:
-    """simulate a bad deployment that ships a new, broken version.
-
-    deploys BAD_DEPLOYMENT_VERSION ("v42") as the current_version and,
-    as a direct consequence of that deployment, puts the service into
-    a "down" state with abnormal error rate and latency values. Unlike
-    simulate_outage(), this scenario ties the incident to a specific
-    version change, so a future agent can correlate the bad metrics
-    with the deployment that caused them (e.g. via
-    tools.diagnostics.get_deployment_history()).
-
-    returns:
-        SimulationActionResponse:a confirmation message describing
-        both the deployment and the resulting incident, and the
-        resulting service state.
-    """
+    """Deploy the tracked broken version and derive its failure symptoms."""
     _begin_scenario("bad_deployment")
     state.current_version = BAD_DEPLOYMENT_VERSION
     state._deployment_regression = True
@@ -399,23 +335,13 @@ def simulate_bad_deployment() -> SimulationActionResponse:
         state=state,
     )
 
+
 @app.post("/simulate/adaptive-incident", response_model=SimulationActionResponse, dependencies=[Depends(require_simulator)])
 def simulate_adaptive_incident() -> SimulationActionResponse:
-    """
-    Start a compound incident designed to test agent adaptation.
+    """Start a compound incident designed to test agent adaptation.
 
-    Two independent causes are active at once:
-
-    * hung worker processes, which a restart clears, and
-    * a traffic surge that needs more capacity than the single provisioned
-      replica, which only scaling clears.
-
-    While the workers are hung, requests time out before they ever reach the
-    connection pool, so the capacity shortfall produces no evidence of its
-    own. A restart therefore succeeds as an action but the service stays
-    unhealthy, and only then does resource-pressure evidence appear. Nothing
-    here prescribes an order: scaling first and restarting second resolves
-    it just as well, because each action removes exactly its own cause.
+    Hung workers initially hide the independent capacity shortfall, so a
+    restart reveals new evidence without resolving the incident.
     """
     _begin_scenario("adaptive_incident")
 
@@ -434,43 +360,17 @@ def simulate_adaptive_incident() -> SimulationActionResponse:
         state=state,
     )
 
+
 @app.post("/simulate/rollback", response_model=SimulationActionResponse, dependencies=[Depends(require_simulator)])
 def simulate_rollback(version: str) -> SimulationActionResponse:
-    """Simulate rolling back the deployed version.
-
-    This changes current_version unconditionally. Whether that change
-    also heals the service depends on why the service was unhealthy in
-    the first place, kept deterministic and tied to cause-and-effect
-    rather than "every rollback fixes everything":
-
-        - If the service is currently down BECAUSE of the tracked bad
-          deployment (current_version == BAD_DEPLOYMENT_VERSION) and
-          this call moves away from that version, the cause of the
-          incident is removed, so the service deterministically
-          recovers to its healthy baseline - mirroring how
-          simulate_bad_deployment() tied the incident to the version
-          in the first place.
-        - Otherwise (e.g. the service is unhealthy for a reason never
-          tied to the deployed version, such as simulate_outage(), or
-          this call rolls back to the same bad version), only the
-          recorded version changes. Status/error_rate/latency are left
-          untouched, so a rollback cannot be assumed to fix an
-          incident it didn't cause.
-
-    Args:
-        version: The version string to roll back to.
-
-    Returns:
-        SimulationActionResponse: a confirmation message and the
-        resulting service state.
-    """
-    incident_caused_by_current_deployment = (
+    """Change version, healing only a regression caused by the old version."""
+    fixes_regression = (
             deployment_regression_active() and version != BAD_DEPLOYMENT_VERSION
     )
 
     state.current_version = version
 
-    if incident_caused_by_current_deployment:
+    if fixes_regression:
         state._deployment_regression = False
         _recompute_service_health()
         message = (
@@ -490,11 +390,6 @@ def simulate_rollback(version: str) -> SimulationActionResponse:
         state=state,
     )
 
-# ============================================================
-# IncidentPilot API
-# ============================================================
-
-
 def _update_run_state(phase, details=None):
     run_state.update({
         "phase": phase,
@@ -506,13 +401,7 @@ def _update_run_state(phase, details=None):
 
 @app.post("/run-incident")
 def run_incident():
-    """
-    Run IncidentPilot against the current simulated incident.
-
-    The controller investigates the service, chooses a remediation,
-    passes it through the safety policy, executes it, verifies recovery,
-    and adapts if necessary.
-    """
+    """Run IncidentPilot against the current incident."""
     from backend.agent.controller import controller
 
     global last_incident_result
@@ -548,13 +437,7 @@ def run_incident():
 
 @app.get("/config")
 def get_runtime_config():
-    """
-    Return the SLO thresholds and action bounds the backend enforces.
-
-    The dashboard reads this instead of hardcoding thresholds, so the numbers
-    it displays are always the ones the agent and the safety policy actually
-    use.
-    """
+    """Return the thresholds and action bounds enforced by the backend."""
     config = slo.as_dict()
     config["environment"] = _infrastructure().describe()
     return config
@@ -562,12 +445,7 @@ def get_runtime_config():
 
 @app.get("/status")
 def get_incident_status():
-    """
-    Return the current service state and latest agent result.
-
-    Read through the same infrastructure adapter the agent uses, so the
-    dashboard shows the simulator or the Kubernetes workload accordingly.
-    """
+    """Read service and agent state through the configured adapter."""
     from backend.infrastructure import InfrastructureError
 
     infrastructure = _infrastructure()
@@ -608,16 +486,7 @@ def get_incident_status():
 
 @app.get("/timeline")
 def get_incident_timeline():
-    """
-    Return the agent's execution history in dashboard-friendly form.
-
-    This is the endpoint the dashboard's Agent Execution Timeline reads. It
-    projects the latest run into one flat, render-ready shape per attempt -
-    the observations, detection signals, diagnosis, decision, safety verdict,
-    action outcome and verification - alongside the live agent phase, so the
-    timeline stays correct across a page reload in the middle of a run and
-    when a run was started by another client.
-    """
+    """Return a render-ready view of the latest execution history."""
     attempts = []
 
     if last_incident_result:

@@ -73,10 +73,6 @@ function HumanAgentGesture() {
   );
 }
 
-/* ═══════════════════════════════════════════════
-   SCROLL REVEAL HOOK
-   ═══════════════════════════════════════════════ */
-
 function useScrollReveal() {
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -95,10 +91,6 @@ function useScrollReveal() {
   }, []);
 }
 
-/* ═══════════════════════════════════════════════
-   LANDING PAGE
-   ═══════════════════════════════════════════════ */
-
 export default function LandingPage() {
   useScrollReveal();
   const navigate = useNavigate();
@@ -112,7 +104,6 @@ export default function LandingPage() {
 
   return (
     <div className="landing-page">
-      {/* Navigation */}
       <nav className="landing-nav">
         <div className="landing-nav-brand">
           <div className="brand-icon">⚡</div>
@@ -123,7 +114,6 @@ export default function LandingPage() {
         </button>
       </nav>
 
-      {/* Hero */}
       <section className="hero">
         <div className="hero-bg-gradient" />
         <div className="hero-grid-overlay" />
@@ -159,7 +149,6 @@ export default function LandingPage() {
         <ResponseLifecyclePreview />
       </section>
 
-      {/* The Problem */}
       <section className="landing-section landing-section-dark">
         <div className="container-landing">
           <div className="reveal">
@@ -175,7 +164,6 @@ export default function LandingPage() {
           </div>
 
           <div className="problem-comparison reveal">
-            {/* Traditional */}
             <div className="problem-card problem-card-old">
               <div className="problem-card-label">
                 <span>✕</span> Traditional Automation
@@ -201,7 +189,6 @@ export default function LandingPage() {
               </div>
             </div>
 
-            {/* IncidentPilot */}
             <div className="problem-card problem-card-new">
               <div className="problem-card-label">
                 <span>✓</span> IncidentPilot
@@ -235,7 +222,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* How It Works */}
       <section className="landing-section" id="how-it-works">
         <div className="container-landing">
           <div className="reveal">
@@ -307,7 +293,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Adaptive Intelligence */}
       <section className="adaptive-section landing-section-dark">
         <div className="container-landing">
           <div className="reveal">
@@ -327,7 +312,6 @@ export default function LandingPage() {
           </div>
 
           <div className="adaptive-visual reveal">
-            {/* Attempt 1 — Fails */}
             <div className="adaptive-attempt">
               <div className="adaptive-timeline-line" />
               <div className="adaptive-attempt-content">
@@ -360,7 +344,6 @@ export default function LandingPage() {
               </div>
             </div>
 
-            {/* Adaptation divider */}
             <div className="adaptive-divider">
               <div className="adaptive-divider-icon">↻</div>
               <div className="adaptive-divider-text">
@@ -368,7 +351,6 @@ export default function LandingPage() {
               </div>
             </div>
 
-            {/* Attempt 2 — Succeeds */}
             <div className="adaptive-attempt">
               <div className="adaptive-timeline-line" />
               <div className="adaptive-attempt-content">
@@ -404,7 +386,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Safety */}
       <section className="landing-section">
         <div className="container-landing">
           <div className="reveal">
@@ -479,7 +460,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Final CTA */}
       <section className="final-cta">
         <div className="final-cta-bg" />
         <div className="container-landing reveal">
@@ -496,7 +476,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Footer */}
       <footer className="landing-footer">
         IncidentPilot · Autonomous Incident Response · Built for the future of SRE
       </footer>

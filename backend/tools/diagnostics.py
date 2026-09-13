@@ -1,27 +1,9 @@
-"""
-IncidentPilot - Diagnostic Tools
-=================================
-
-This module implements the diagnostic tools that a future AI
-incident-response agent will use to investigate the health of the
-simulated production service defined in `backend/simulator/service.py`.
-
-Each function below is a small, independent, reusable Python function
-that reads from the simulator's in-memory state and returns plain,
-structured Python data.
-
-Nothing here is random, non-deterministic, or dependent on an LLM or
-any external service.
-"""
+"""Diagnostic reads for the simulator."""
 
 from typing import Dict, List, Union
 
 from backend.simulator import service
 
-
-# ---------------------------------------------------------------------------
-# Simulated log messages
-# ---------------------------------------------------------------------------
 
 _HEALTHY_LOG_TEMPLATE: List[Dict[str, str]] = [
     {
@@ -100,10 +82,6 @@ _BAD_DEPLOYMENT_LOG_TEMPLATE: List[Dict[str, str]] = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# Deterministic deployment history
-# ---------------------------------------------------------------------------
-
 _DEPLOYMENT_HISTORY: List[Dict[str, Union[str, int]]] = [
     {
         "version": "v39",
@@ -125,10 +103,6 @@ _DEPLOYMENT_HISTORY: List[Dict[str, Union[str, int]]] = [
     },
 ]
 
-
-# ---------------------------------------------------------------------------
-# Diagnostic tools
-# ---------------------------------------------------------------------------
 
 def get_metrics() -> Dict[str, Union[str, float, int]]:
     """Read the current metrics from the simulator."""
@@ -156,8 +130,6 @@ def check_health() -> Dict[str, Union[str, bool]]:
 
 
 def get_current_version() -> str:
-    """Get the current deployed application version."""
-
     version = service.get_version()
 
     return version.current_version
@@ -266,8 +238,6 @@ def get_capacity() -> Dict[str, Union[str, int, float, None]]:
 
 
 def get_deployment_history() -> List[Dict[str, Union[str, int]]]:
-    """Return a deterministic list of recent deployments."""
-
     return [
         dict(entry)
         for entry in _DEPLOYMENT_HISTORY

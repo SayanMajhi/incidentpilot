@@ -25,35 +25,21 @@ class IncidentController:
             use_llm=None,
             llm_engine=None,
             deterministic_engine=None,
-            infrastructure=None,
+        infrastructure=None,
     ):
         if use_llm is None:
-            use_llm = (
-                    os.getenv(
-                        "LLM_ENABLED",
-                        "false",
-                    ).lower()
-                    == "true"
-            )
+            use_llm = os.getenv("LLM_ENABLED", "false").lower() == "true"
 
         self.use_llm = use_llm
-
-        self.llm_engine = (
-            llm_engine
-            if llm_engine is not None
-            else llm_decision_engine
-        )
-
+        self.llm_engine = llm_engine if llm_engine is not None else llm_decision_engine
         self.deterministic_engine = (
             deterministic_engine
             if deterministic_engine is not None
             else decision_engine
         )
-
         # The execution environment this controller observes and acts on,
         # chosen by configuration. The controller never knows which one it is.
         self._infrastructure = infrastructure
-
         self._observation_ids = itertools.count(1)
 
     @property
@@ -61,10 +47,6 @@ class IncidentController:
         if self._infrastructure is None:
             self._infrastructure = get_infrastructure()
         return self._infrastructure
-
-    # ---------------------------------------------------------
-    # OBSERVE
-    # ---------------------------------------------------------
 
     def observe(self):
         """
@@ -84,10 +66,6 @@ class IncidentController:
             "capacity": self.infrastructure.get_capacity(),
         }
 
-    # ---------------------------------------------------------
-    # INVESTIGATE
-    # ---------------------------------------------------------
-
     def investigate(self, observation=None):
         """
         Gather diagnostic evidence on top of a telemetry snapshot.
@@ -103,10 +81,6 @@ class IncidentController:
         observations["evidence"] = collect_evidence(observations)
 
         return observations
-
-    # ---------------------------------------------------------
-    # DIAGNOSE
-    # ---------------------------------------------------------
 
     def diagnose(self, observations):
         """
@@ -128,40 +102,8 @@ class IncidentController:
             }
         return diagnose(observations)
 
-    # ---------------------------------------------------------
-    # DECIDE
-    # ---------------------------------------------------------
-
     def decide(self, observations, diagnosis=None):
-        """
-        Decide what to do next.
-
-        Architecture:
-
-            Observation
-                ↓
-            Evidence + diagnosis
-                ↓
-            Deterministic proposal
-                ↓
-            LLM proposal (optional)
-                ↓
-            Arbitration
-                ↓
-            Final decision
-
-        The LLM proposes actions, but deterministic evidence can
-        override the proposal when there is strong evidence for a
-        safer/more appropriate remediation.
-
-        This prevents the LLM from becoming the sole authority for
-        remediation decisions.
-        """
-
-        # -----------------------------------------------------
-        # HEALTHY SERVICE
-        # -----------------------------------------------------
-
+        """Choose an action, treating an optional LLM as advisory only."""
         metrics = observations.get("metrics", {})
 
         if (
@@ -190,45 +132,18 @@ class IncidentController:
             diagnosis,
         )
 
-        # -----------------------------------------------------
-        # DETERMINISTIC MODE
-        # -----------------------------------------------------
-
         if not self.use_llm:
             deterministic_decision["source"] = "deterministic"
             return deterministic_decision
 
-        # -----------------------------------------------------
-        # TRY QWEN
-        # -----------------------------------------------------
+        llm_decision = self.llm_engine.decide(observations)
 
-        llm_decision = self.llm_engine.decide(
-            observations
-        )
-
-        # -----------------------------------------------------
-        # LLM SUCCESS
-        # -----------------------------------------------------
-
-        if (
-                getattr(
-                    self.llm_engine,
-                    "last_status",
-                    None,
-                )
-                == "success"
-        ):
+        if getattr(self.llm_engine, "last_status", None) == "success":
             llm_decision = dict(llm_decision)
 
-            # -------------------------------------------------
-            # DETERMINISTIC ARBITRATION
-            # -------------------------------------------------
-            #
             # The model remains advisory. When its action conflicts
             # with the deterministic interpretation of the same
             # observed evidence, prefer the evidence-backed action.
-            # -------------------------------------------------
-
             deterministic_action = deterministic_decision.get("action")
             llm_action = llm_decision.get("action")
 
@@ -242,11 +157,8 @@ class IncidentController:
                 )
                 return deterministic_decision
 
-            # -------------------------------------------------
             # A proposal that repeats a remediation which already
             # failed verification in this run is never accepted.
-            # -------------------------------------------------
-
             failed = find_failed_attempt(
                 llm_action,
                 llm_decision.get("target"),
@@ -262,10 +174,6 @@ class IncidentController:
                 )
                 return deterministic_decision
 
-            # -------------------------------------------------
-            # OTHERWISE ACCEPT THE LLM PROPOSAL
-            # -------------------------------------------------
-
             llm_decision.setdefault("parameters", {})
             llm_decision["diagnosis"] = deterministic_decision.get("diagnosis")
             llm_decision["evidence"] = deterministic_decision.get("evidence", [])
@@ -273,16 +181,8 @@ class IncidentController:
 
             return llm_decision
 
-        # -----------------------------------------------------
-        # QWEN FAILED → DETERMINISTIC FALLBACK
-        # -----------------------------------------------------
-
         fallback = deterministic_decision
-
-        fallback["source"] = (
-            "deterministic_fallback"
-        )
-
+        fallback["source"] = "deterministic_fallback"
         fallback["fallback_reason"] = getattr(
             self.llm_engine,
             "last_error",
@@ -304,10 +204,6 @@ class IncidentController:
         decision.setdefault("parameters", {})
         decision.setdefault("evidence", [])
         return decision
-
-    # ---------------------------------------------------------
-    # SAFETY
-    # ---------------------------------------------------------
 
     @staticmethod
     def check_safety(decision):
@@ -342,10 +238,6 @@ class IncidentController:
             "allowed": bool(allowed),
         }
 
-    # ---------------------------------------------------------
-    # SAFETY + ACT
-    # ---------------------------------------------------------
-
     def execute(self, decision, safety_result=None):
         """
         Execute an approved decision.
@@ -361,10 +253,6 @@ class IncidentController:
         action = decision["action"]
         target = decision.get("target")
 
-        # -----------------------------------------------------
-        # ESCALATION
-        # -----------------------------------------------------
-
         if action == "escalate":
             return {
                 "action": "escalate",
@@ -373,16 +261,8 @@ class IncidentController:
                 "message": decision["reason"],
             }
 
-        # -----------------------------------------------------
-        # SAFETY CHECK
-        # -----------------------------------------------------
-
         if safety_result is None:
             safety_result = self.check_safety(decision)
-
-        # -----------------------------------------------------
-        # BLOCK UNSAFE ACTION
-        # -----------------------------------------------------
 
         if not safety_result.get("allowed"):
             return {
@@ -390,28 +270,15 @@ class IncidentController:
                 "success": False,
                 "status": "blocked",
                 "policy_allowed": False,
-                "message": (
-                    "Action blocked by safety policy."
-                ),
+                "message": "Action blocked by safety policy.",
             }
 
-        # -----------------------------------------------------
-        # EXECUTE APPROVED ACTION
-        # -----------------------------------------------------
-
         if action == "rollback_deployment":
-            result = self.infrastructure.rollback_deployment(
-                target
-            )
-
+            result = self.infrastructure.rollback_deployment(target)
         elif action == "scale_service":
-            result = self.infrastructure.scale_service(
-                target
-            )
-
+            result = self.infrastructure.scale_service(target)
         elif action == "restart_service":
             result = self.infrastructure.restart_service()
-
         else:
             return {
                 "action": action,
@@ -436,10 +303,6 @@ class IncidentController:
                 result["reconciliation"] = reconciliation
 
         return result
-
-    # ---------------------------------------------------------
-    # VERIFY
-    # ---------------------------------------------------------
 
     def verify(self):
         """
@@ -480,37 +343,8 @@ class IncidentController:
 
         return result
 
-    # ---------------------------------------------------------
-    # FULL INCIDENT LOOP
-    # ---------------------------------------------------------
-
     def run_incident(self, on_event=None):
-        """
-        Run the autonomous incident-response loop.
-
-        Observe
-            ↓
-        Detect
-            ↓
-        Investigate
-            ↓
-        Diagnose
-            ↓
-        Decide
-            ↓
-        Safety
-            ↓
-        Act
-            ↓
-        Verify (fresh telemetry)
-            ↓
-        Adapt: record the failed attempt, then observe again
-
-        Nothing about the next attempt is decided when an attempt fails. The
-        failure is recorded, and the next iteration starts from a completely
-        fresh observation; whatever it decides follows from that new
-        evidence, with already-failed remediations ruled out.
-        """
+        """Run the bounded incident-response loop with fresh evidence each attempt."""
 
         history = []
         evidence_history = []
@@ -527,22 +361,10 @@ class IncidentController:
             if on_event is not None:
                 on_event(phase, details)
 
-        for attempt_number in range(
-                1,
-                self.MAX_ATTEMPTS + 1,
-        ):
-
-            # ================================================
-            # OBSERVE + DETECT
-            # ================================================
-
+        for attempt_number in range(1, self.MAX_ATTEMPTS + 1):
             emit("observing", attempt=attempt_number)
             observation = self.observe()
             detection = self.detect(observation)
-
-            # ================================================
-            # INVESTIGATE
-            # ================================================
 
             emit("investigating", attempt=attempt_number, detection=detection)
             observations = self.investigate(observation)
@@ -568,25 +390,13 @@ class IncidentController:
 
             seen_evidence.update(evidence_ids)
 
-            # ================================================
-            # DIAGNOSE
-            # ================================================
-
             emit("diagnosing", attempt=attempt_number)
             diagnosis = self.diagnose(observations)
-
-            # ================================================
-            # DECIDE
-            # ================================================
 
             emit("deciding", attempt=attempt_number, diagnosis=self._summary(diagnosis))
             decision = dict(self.decide(observations, diagnosis))
             decision.setdefault("parameters", {})
             decision.setdefault("evidence", [])
-
-            # ================================================
-            # ESCALATION
-            # ================================================
 
             if decision["action"] == "escalate":
                 safety_result = self.check_safety(decision)
@@ -613,10 +423,6 @@ class IncidentController:
 
                 break
 
-            # ================================================
-            # SAFETY CHECK
-            # ================================================
-
             # The verdict comes from the deterministic policy gate itself,
             # not from the action's outcome string - an approved action that
             # then fails to execute must not be reported as "blocked", and a
@@ -624,21 +430,14 @@ class IncidentController:
             emit("checking_safety", attempt=attempt_number, action=decision.get("action"))
             safety_result = self.check_safety(decision)
 
-            # ================================================
-            # ACT (or block)
-            # ================================================
-
             if safety_result["allowed"]:
                 emit("executing", attempt=attempt_number, action=decision.get("action"))
 
             action_result = self.execute(decision, safety_result=safety_result)
 
             if not safety_result["allowed"]:
-
                 verification = None
-
                 status = "blocked"
-
                 history.append(
                     self._record_attempt(
                         attempt_number,
@@ -657,10 +456,6 @@ class IncidentController:
                 )
 
                 break
-
-            # ================================================
-            # VERIFY
-            # ================================================
 
             emit("verifying", attempt=attempt_number, action_result=action_result)
             verification = self.verify()
@@ -685,17 +480,9 @@ class IncidentController:
                 self._summarize_attempt(history[-1])
             )
 
-            # ================================================
-            # SUCCESS
-            # ================================================
-
             if verification.recovered:
                 status = "resolved"
                 break
-
-            # ================================================
-            # ADAPT
-            # ================================================
 
             status = "unresolved"
             emit(
@@ -706,10 +493,6 @@ class IncidentController:
 
             # The next iteration observes again from scratch. It does not
             # know - and is not told - what to do next.
-
-        # ================================================
-        # FINAL RESULT
-        # ================================================
 
         emit("complete", status=status, attempts=len(history))
         return {
@@ -746,10 +529,6 @@ class IncidentController:
             "confidence": diagnosis.get("confidence"),
         }
 
-    # ---------------------------------------------------------
-    # HISTORY
-    # ---------------------------------------------------------
-
     @staticmethod
     def _record_attempt(
             attempt_number,
@@ -762,10 +541,7 @@ class IncidentController:
             verification,
             new_evidence=None,
     ):
-        """
-        Store a complete audit record for one attempt.
-        """
-
+        """Store the audit record for one attempt."""
         return {
             "attempt": attempt_number,
             "observations": observations,

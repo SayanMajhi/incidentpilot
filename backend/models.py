@@ -121,7 +121,7 @@ class VerificationResult(SerializableModel):
 
     @model_validator(mode="before")
     @classmethod
-    def derive_compatible_verdict_fields(cls, data: Any) -> Any:
+    def fill_verdict_fields(cls, data: Any) -> Any:
         if not isinstance(data, dict):
             return data
 
@@ -144,7 +144,7 @@ class VerificationResult(SerializableModel):
         return values
 
     @model_validator(mode="after")
-    def verdict_fields_agree(self) -> "VerificationResult":
+    def check_verdict(self) -> "VerificationResult":
         expected = self.status == VerificationStatus.RECOVERED
         if self.recovered != expected:
             raise ValueError("status and recovered describe different verdicts")

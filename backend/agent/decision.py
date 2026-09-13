@@ -1,37 +1,7 @@
-"""
-IncidentPilot - Decision Engine
-=================================
+"""Deterministic evidence collection, diagnosis, and action proposals.
 
-The DecisionEngine turns diagnostic *observations* (telemetry, logs,
-deployment history, capacity) into a diagnosis and a single recommended next
-*action*. It is purely analytical:
-
-    - It NEVER calls anything in `backend/tools/remediation.py`.
-    - It NEVER mutates simulator state.
-    - It only reads the `observations` dict it is given and returns a
-      structured decision describing what an operator/agent *should*
-      do next. Executing that decision is the caller's job (subject to
-      whatever safety policy sits between decision and execution).
-
-The pipeline is deliberately split into three evidence-driven stages:
-
-    1. collect_evidence()  - turn raw observations into discrete, named
-                             evidence items ("logs:resource_pressure", ...).
-    2. diagnose()          - rank the causal hypotheses those items support,
-                             and rule out any hypothesis whose remediation was
-                             already executed in this run and failed
-                             verification.
-    3. decide()            - propose the remediation of the strongest
-                             hypothesis that is still viable, or escalate.
-
-There is no notion of "the next step after X". What an attempt does depends
-only on the evidence observed *for that attempt* plus the record of which
-remediations have already been tried and verified as unsuccessful. A failed
-restart does not imply scaling; it only removes restart from consideration.
-If the fresh evidence then supports another cause, that cause's remediation is
-proposed; if it supports nothing new, the engine escalates.
-
-This is still a deterministic, rule-based baseline - no LLM involved.
+A failed action only rules out that remediation; fresh evidence determines
+what happens next.
 """
 
 import math
@@ -39,11 +9,6 @@ from typing import Any, Dict, List, Optional, Union
 
 from backend.shared import slo
 
-# ---------------------------------------------------------------------------
-# Evidence keywords
-# ---------------------------------------------------------------------------
-# Deployment-related signals: something in the logs ties the incident to a
-# deployment/release/version change.
 _DEPLOYMENT_KEYWORDS = ("deployment", "deploy", "release", "rollout")
 
 # Generic failure/error signals. On their own these say nothing about the
@@ -60,7 +25,6 @@ _ERROR_KEYWORDS = (
     "timeout",
 )
 
-# Resource-exhaustion signals.
 _RESOURCE_KEYWORDS = (
     "resource",
     "memory",
@@ -229,7 +193,6 @@ def collect_evidence(observations: Dict[str, Any]) -> List[Dict[str, Any]]:
 
     evidence: List[Dict[str, Any]] = []
 
-    # -- Telemetry ---------------------------------------------------------
     if health and health.get("status") not in (None, "healthy"):
         evidence.append({
             "id": "health:check_failed",
@@ -262,7 +225,6 @@ def collect_evidence(observations: Dict[str, Any]) -> List[Dict[str, Any]]:
             ),
         })
 
-    # -- Capacity telemetry -----------------------------------------------
     utilization = capacity.get("utilization")
     if isinstance(utilization, (int, float)) and utilization > 1.0:
         evidence.append({
@@ -276,7 +238,6 @@ def collect_evidence(observations: Dict[str, Any]) -> List[Dict[str, Any]]:
             "value": utilization,
         })
 
-    # -- Logs --------------------------------------------------------------
     metrics_elevated = _metrics_elevated(metrics)
     matched: Dict[str, List[str]] = {}
     for entry in logs:
@@ -481,13 +442,7 @@ def _propose_remediation(
 
 
 class DecisionEngine:
-    """Analyzes diagnostic observations, diagnoses, and selects the next action.
-
-    The DecisionEngine never executes actions itself - it only decides
-    what should happen next. Executing the returned action (and any
-    additional safety checks) is left to the caller / safety policy /
-    remediation layer.
-    """
+    """Analyze observations and propose actions without executing them."""
 
     def diagnose(self, observations: Dict[str, Any]) -> Dict[str, Any]:
         """Rank the causal hypotheses the evidence supports.

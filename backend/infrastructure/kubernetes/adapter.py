@@ -97,10 +97,6 @@ class KubernetesInfrastructure(Infrastructure):
                 )
         self._gateway = gateway
 
-    # ------------------------------------------------------------------
-    # Connection and identity
-    # ------------------------------------------------------------------
-
     @property
     def gateway(self) -> KubernetesGateway:
         """Connect on first use, never at construction."""
@@ -145,10 +141,6 @@ class KubernetesInfrastructure(Infrastructure):
             "replicas": _get(deployment, "spec", "replicas", default=1),
             "ready_replicas": _get(deployment, "status", "readyReplicas", default=0),
         }
-
-    # ------------------------------------------------------------------
-    # Resource helpers
-    # ------------------------------------------------------------------
 
     def _deployment(self) -> Dict[str, Any]:
         deployment = self.gateway.read_deployment(
@@ -220,10 +212,6 @@ class KubernetesInfrastructure(Infrastructure):
             return False
 
         return [replica_set for replica_set in replica_sets if owned(replica_set)]
-
-    # ------------------------------------------------------------------
-    # Observation
-    # ------------------------------------------------------------------
 
     def get_metrics(self) -> Dict[str, Any]:
         deployment = self._deployment()
@@ -342,7 +330,6 @@ class KubernetesInfrastructure(Infrastructure):
 
         entries: List[Dict[str, str]] = []
 
-        # -- Rollout conditions -------------------------------------------
         for condition in _get(deployment, "status", "conditions", default=[]):
             if condition.get("status") != "False":
                 continue
@@ -361,7 +348,6 @@ class KubernetesInfrastructure(Infrastructure):
                     "message": f"Workload {name} is below minimum availability ({reason}).",
                 })
 
-        # -- Pods ------------------------------------------------------------
         pods = self.gateway.list_pods(namespace, selector)
         pod_names = set()
 
@@ -418,7 +404,6 @@ class KubernetesInfrastructure(Infrastructure):
                         "message": message,
                     })
 
-        # -- Warning events for the Deployment, its ReplicaSets and pods -----
         related = {name} | set(replica_set_revisions) | pod_names
         for event in self.gateway.list_events(namespace):
             if event.get("type") != "Warning":
@@ -441,7 +426,6 @@ class KubernetesInfrastructure(Infrastructure):
                 ).strip(),
             })
 
-        # -- Recent application log lines ----------------------------------
         for pod in pods[: self.settings.max_pods_for_logs]:
             pod_name = _get(pod, "metadata", "name", default="")
             containers = _get(pod, "spec", "containers", default=[])
@@ -545,10 +529,6 @@ class KubernetesInfrastructure(Infrastructure):
             "timeout_seconds": self.settings.rollout_timeout_seconds,
             **last,
         }
-
-    # ------------------------------------------------------------------
-    # Remediation
-    # ------------------------------------------------------------------
 
     def restart_service(self) -> Dict[str, Any]:
         deployment = self._deployment()

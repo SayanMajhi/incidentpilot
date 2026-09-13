@@ -52,10 +52,6 @@ class KubernetesGateway:
         self._api_exception = api_exception
         self.context: Optional[str] = None
 
-    # ------------------------------------------------------------------
-    # Connection
-    # ------------------------------------------------------------------
-
     @classmethod
     def connect(cls, settings: KubernetesSettings) -> "KubernetesGateway":
         """Connect through the local kubeconfig, refusing non-allow-listed contexts."""
@@ -94,10 +90,6 @@ class KubernetesGateway:
         )
         gateway.context = context
         return gateway
-
-    # ------------------------------------------------------------------
-    # Guards
-    # ------------------------------------------------------------------
 
     def _check_namespace(self, namespace: str) -> None:
         self.settings.assert_namespace(namespace)
@@ -152,10 +144,6 @@ class KubernetesGateway:
                 f"Could not reach the Kubernetes API to {description}: "
                 f"{type(error).__name__}: {error}"
             ) from error
-
-    # ------------------------------------------------------------------
-    # Reads
-    # ------------------------------------------------------------------
 
     def read_namespace(self, namespace: str) -> Dict[str, Any]:
         self._check_namespace(namespace)
@@ -264,10 +252,6 @@ class KubernetesGateway:
 
         elapsed = int((time.perf_counter() - started) * 1000)
         return True, max(elapsed, 1), "HTTP 200"
-
-    # ------------------------------------------------------------------
-    # Writes
-    # ------------------------------------------------------------------
 
     def replace_pod_template(
             self,
