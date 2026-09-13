@@ -80,3 +80,13 @@ class Infrastructure(ABC):
     @abstractmethod
     def scale_service(self, replicas: int) -> Dict[str, Any]:
         """Scale the service to a bounded number of replicas."""
+
+    def wait_for_reconciliation(self, action_result: Dict[str, Any]) -> Dict[str, Any] | None:
+        """Optionally wait for an asynchronous remediation to settle.
+
+        Simulator actions take effect synchronously, so the default is a
+        no-op.  Kubernetes overrides this after restart, rollback and scale
+        requests: the API accepting a patch is not proof that the workload
+        has finished reconciling.
+        """
+        return None

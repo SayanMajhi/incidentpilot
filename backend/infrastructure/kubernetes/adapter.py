@@ -34,6 +34,7 @@ Deployment is never touched.
 import copy
 import re
 import statistics
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -442,9 +443,82 @@ class KubernetesInfrastructure(Infrastructure):
         summary = {
             "timestamp": _now(),
             "level": "INFO" if ready >= desired else "WARNING",
-            "message": f"Workload {name}: {ready}/{desired} replicas ready, running {version}.",
+            # The current version is already returned by get_current_version().
+            # Keeping this routine status line version-free prevents elevated
+            # service metrics from turning it into false deployment evidence.
+            "message": f"Workload {name}: {ready}/{desired} replicas ready.",
         }
         return [summary] + entries[-(_MAX_LOG_ENTRIES - 1):]
+
+    def wait_for_reconciliation(self, action_result: Dict[str, Any]) -> Dict[str, Any] | None:
+        """Wait for a requested Deployment change to reach ready state.
+
+        A successful Kubernetes patch only means the API accepted it.  This
+        bounded poll waits for the observed generation and ready replica count
+        after restart, rollback and scaling, so controller verification reads
+        the post-rollout workload rather than the Pods from the old template.
+        """
+        if action_result.get("action") not in {
+            "restart_service", "rollback_deployment", "scale_service",
+        } or not action_result.get("success"):
+            return None
+
+        expected_generation = action_result.get("generation")
+        expected_version = action_result.get("current_version")
+        deadline = time.monotonic() + self.settings.rollout_timeout_seconds
+        last = {}
+
+        while time.monotonic() < deadline:
+            deployment = self._deployment()
+            desired = int(_get(deployment, "spec", "replicas", default=1))
+            ready = int(_get(deployment, "status", "readyReplicas", default=0))
+            updated = _get(deployment, "status", "updatedReplicas")
+            available = _get(deployment, "status", "availableReplicas")
+            observed_generation = _get(deployment, "status", "observedGeneration")
+            version = self._template_version(
+                _get(deployment, "spec", "template", default={})
+            )
+
+            generation_observed = (
+                expected_generation is None
+                or observed_generation is None
+                or int(observed_generation) >= int(expected_generation)
+            )
+            updated_ready = updated is None or int(updated) >= desired
+            available_ready = available is None or int(available) >= desired
+            version_matches = expected_version is None or version == expected_version
+
+            last = {
+                "version": version,
+                "desired_replicas": desired,
+                "ready_replicas": ready,
+                "updated_replicas": updated,
+                "available_replicas": available,
+                "observed_generation": observed_generation,
+            }
+
+            if (
+                generation_observed
+                and version_matches
+                and ready >= desired
+                and updated_ready
+                and available_ready
+            ):
+                return {
+                    "waited": True,
+                    "converged": True,
+                    "timeout_seconds": self.settings.rollout_timeout_seconds,
+                    **last,
+                }
+
+            time.sleep(1)
+
+        return {
+            "waited": True,
+            "converged": False,
+            "timeout_seconds": self.settings.rollout_timeout_seconds,
+            **last,
+        }
 
     # ------------------------------------------------------------------
     # Remediation
@@ -455,7 +529,7 @@ class KubernetesInfrastructure(Infrastructure):
         self._require_managed(deployment)
 
         restarted_at = _now()
-        self.gateway.replace_pod_template(
+        patched = self.gateway.replace_pod_template(
             self.settings.namespace,
             self.settings.deployment,
             {"metadata": {"annotations": {RESTARTED_AT_ANNOTATION: restarted_at}}},
@@ -471,6 +545,7 @@ class KubernetesInfrastructure(Infrastructure):
                 "the restart was issued - verify current status separately."
             ),
             "restarted_at": restarted_at,
+            "generation": _get(patched, "metadata", "generation"),
         }
 
     def rollback_deployment(self, version: str) -> Dict[str, Any]:
@@ -512,7 +587,7 @@ class KubernetesInfrastructure(Infrastructure):
         labels = _get(template, "metadata", "labels", default={})
         labels.pop(POD_TEMPLATE_HASH_LABEL, None)
 
-        self.gateway.replace_pod_template(
+        patched = self.gateway.replace_pod_template(
             self.settings.namespace,
             self.settings.deployment,
             {key: value for key, value in template.items() if key in ("metadata", "spec")},
@@ -531,6 +606,7 @@ class KubernetesInfrastructure(Infrastructure):
             "requested_version": version,
             "previous_version": current_version,
             "current_version": version,
+            "generation": _get(patched, "metadata", "generation"),
         }
 
     def scale_service(self, replicas: int) -> Dict[str, Any]:

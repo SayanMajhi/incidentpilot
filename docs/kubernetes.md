@@ -159,6 +159,7 @@ cluster yet.
 | `K8S_PROBE_SAMPLES` | `5` | Probes per metrics reading (1-20). |
 | `K8S_PROBE_TIMEOUT_SECONDS` | `2` | Per-probe timeout (up to 10). |
 | `K8S_LOG_TAIL_LINES` | `20` | Pod log lines read per pod (1-200). |
+| `K8S_ROLLOUT_TIMEOUT_SECONDS` | `90` | Bounded wait after restart, rollback, or scale before fresh verification (1-180). |
 
 ## 5. Reset and clean up
 

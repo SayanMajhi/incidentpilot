@@ -178,11 +178,12 @@ def _classify_log_line(
     also be counted as independent evidence of a transient failure - the
     deployment already explains it.
 
-    Deployment evidence requires BOTH a deployment signal (a deployment
-    keyword, or the current version named explicitly) AND a failure signal
-    (failure wording on the line, or elevated metrics). This deliberately
-    avoids fragile heuristics like "deployment history has more than one
-    entry".
+    Deployment evidence requires an explicit deployment keyword plus a
+    failure signal, or a named current version plus failure wording on that
+    same line.  Elevated metrics alone must not turn an otherwise neutral
+    workload summary such as "running v41" into a deployment regression.
+    This deliberately avoids fragile heuristics like "deployment history has
+    more than one entry".
     """
     text = message.lower()
 
@@ -190,7 +191,10 @@ def _classify_log_line(
     version_mentioned = bool(current_version) and current_version.lower() in text
     failure_signal = any(keyword in text for keyword in _ERROR_KEYWORDS) or metrics_elevated
 
-    if (deployment_mentioned or version_mentioned) and failure_signal:
+    if deployment_mentioned and failure_signal:
+        return "deployment_failure"
+
+    if version_mentioned and any(keyword in text for keyword in _ERROR_KEYWORDS):
         return "deployment_failure"
 
     if any(keyword in text for keyword in _RESOURCE_KEYWORDS):

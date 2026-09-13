@@ -424,7 +424,18 @@ class IncidentController:
         # The policy approved this action, so record that verdict
         # alongside whatever the executor reported. The two are
         # deliberately separate: an approved action can still fail.
-        return {**result, "policy_allowed": True}
+        result = {**result, "policy_allowed": True}
+
+        # Some backends accept a Deployment patch before their controllers
+        # create and ready replacement Pods. Give asynchronous reconciliation
+        # a bounded chance to settle before the verifier reads fresh telemetry.
+        # Backends with synchronous actions inherit the no-op implementation.
+        if result.get("success"):
+            reconciliation = self.infrastructure.wait_for_reconciliation(result)
+            if reconciliation is not None:
+                result["reconciliation"] = reconciliation
+
+        return result
 
     # ---------------------------------------------------------
     # VERIFY

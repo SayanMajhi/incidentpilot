@@ -45,6 +45,9 @@ The controller has no environment-specific code; both adapters implement the
 same interface. Setup, configuration and safety restrictions for Kubernetes
 mode are in [docs/kubernetes.md](docs/kubernetes.md).
 
+For repeatable, real-cluster restart, rollback, and adaptive scale scenarios,
+see [docs/kubernetes-scenarios.md](docs/kubernetes-scenarios.md).
+
 Repository layout:
 
 ```text

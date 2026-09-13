@@ -545,6 +545,17 @@ def test_connection_check_is_read_only_and_reports_the_target():
     assert cluster.mutating_calls() == []
 
 
+def test_reconciliation_wait_confirms_the_fake_rollout_is_ready():
+    adapter, _ = make_adapter(settings=KubernetesSettings(rollout_timeout_seconds=1))
+
+    action = adapter.restart_service()
+    reconciliation = adapter.wait_for_reconciliation(action)
+
+    assert reconciliation["waited"] is True
+    assert reconciliation["converged"] is True
+    assert reconciliation["ready_replicas"] == reconciliation["desired_replicas"] == 1
+
+
 def test_connection_check_tolerates_a_namespace_scoped_identity():
     cluster = FakeCluster()
 
@@ -598,5 +609,6 @@ def test_the_same_incident_controller_remediates_a_kubernetes_workload():
     assert (attempt["decision"]["action"], attempt["decision"]["target"]) == ("rollback_deployment", "v41")
     assert attempt["safety_result"] == {"action": "rollback_deployment", "checked": True, "allowed": True}
     assert attempt["verification"].recovered is True
+    assert attempt["action_result"]["reconciliation"]["converged"] is True
     assert cluster.version == "v41"
     assert [call[0] for call in cluster.mutating_calls()] == ["patch_namespaced_deployment"]

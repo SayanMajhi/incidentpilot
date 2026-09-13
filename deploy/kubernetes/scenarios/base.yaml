@@ -1,0 +1,90 @@
+# Baseline for the three real-Kubernetes IncidentPilot scenarios.
+#
+# Build and load the local image first:
+#   docker build -t incidentpilot-scenarios:local deploy/kubernetes/scenarios
+#   kind load docker-image incidentpilot-scenarios:local --name incidentpilot
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: incidentpilot-demo
+  namespace: incidentpilot
+  labels:
+    app.kubernetes.io/name: incidentpilot-demo
+    incidentpilot.io/managed: "true"
+spec:
+  replicas: 1
+  revisionHistoryLimit: 10
+  progressDeadlineSeconds: 60
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: incidentpilot-demo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: incidentpilot-demo
+        app.kubernetes.io/version: v41
+    spec:
+      containers:
+        - name: app
+          image: incidentpilot-scenarios:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+          env:
+            - name: MODE
+              value: healthy
+            - name: RESTARTED_AT
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.annotations['kubectl.kubernetes.io/restartedAt']
+            - name: PEER_SERVICE
+              value: incidentpilot-demo-peers
+            - name: PEER_THRESHOLD
+              value: "3"
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 2
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 96Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: incidentpilot-demo
+  namespace: incidentpilot
+  labels:
+    app.kubernetes.io/name: incidentpilot-demo
+spec:
+  selector:
+    app.kubernetes.io/name: incidentpilot-demo
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+# The adaptive scenario uses DNS records from this Service to count ready
+# peers. publishNotReadyAddresses keeps the count stable while new pods start.
+apiVersion: v1
+kind: Service
+metadata:
+  name: incidentpilot-demo-peers
+  namespace: incidentpilot
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: incidentpilot-demo
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

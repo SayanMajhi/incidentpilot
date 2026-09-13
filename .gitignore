@@ -23,6 +23,7 @@ build/
 
 # Logs
 *.log
+.incidentpilot-kubernetes-run.json
 
 # Editors / OS
 .vscode/
