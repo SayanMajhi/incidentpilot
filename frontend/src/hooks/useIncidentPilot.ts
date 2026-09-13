@@ -15,7 +15,7 @@ const POLL_INTERVAL_MS = 2_000;
 const FALLBACK_CONFIG: RuntimeConfig = {
   recovery: { max_error_rate: 0.05, max_latency_ms: 200 },
   elevated: { error_rate: 0.1, latency_ms: 300 },
-  replicas: { min: 1, max: 5 },
+  replicas: { min: 1, max: 3 },
   baseline: { error_rate: 0.01, latency_ms: 100, version: 'v41' },
   chart: { latency_ceiling_ms: 1200 },
   bad_deployment_version: 'v42',
@@ -61,22 +61,43 @@ function formatTarget(target: string | number | null): string {
   return typeof target === 'number' ? `${target} replicas` : String(target);
 }
 
+function formatMetricPercent(value: number | null | undefined): string {
+  return typeof value === 'number' ? `${value.toFixed(0)}%` : 'unavailable';
+}
+
+function actionLabel(action: string, target: string | number | null, currentReplicas: number): string {
+  if (action === 'restart_service') return 'Restart deployment';
+  if (action === 'rollback_deployment') return `Rollback deployment → ${formatTarget(target)}`;
+  if (action === 'scale_service') return `Scale ${currentReplicas} → ${target}`;
+  return titleCase(action);
+}
+
 function mapAttempt(attempt: BackendAttempt, index: number, total: number): Attempt {
   const { observations, detection, diagnosis, decision, safety_result, action_result, verification } = attempt;
   const metrics = observations.metrics;
+  const capacity = observations.capacity;
+  const after = verification?.metrics_after || verification?.telemetry?.metrics;
+  const afterCapacity = verification?.telemetry?.capacity;
   const signals = detection.signals.length ? detection.signals.map(titleCase).join(', ') : 'No SLO breaches';
+  const evidence = attempt.evidence || observations.evidence || [];
+  const evidenceSummary = evidence.length
+    ? evidence.slice(0, 3).map((item) => item.detail).join(' ')
+    : 'No causal evidence was found.';
+  const selectedAction = actionLabel(decision.action, decision.target, capacity.replicas);
   const steps: Attempt['steps'] = [
-    { type: 'obs', label: 'Observe & Detect', details: `Fresh telemetry: ${metrics.status.toUpperCase()}, ${(metrics.error_rate * 100).toFixed(1)}% errors, ${metrics.latency_ms}ms latency. Signals: ${signals}.` },
-    { type: 'inv', label: 'Investigate', details: `Queried ${observations.logs.length} diagnostic log entries, deployment history, service health, and current version ${observations.current_version}.` },
+    { type: 'obs', label: 'OBSERVE · SLO breach detected', details: `CPU ${formatMetricPercent(metrics.cpu_percent)} · Error rate ${(metrics.error_rate * 100).toFixed(1)}% · Latency ${metrics.latency_ms}ms · Replicas ${capacity.replicas}${capacity.ready_replicas != null ? ` (${capacity.ready_replicas} ready)` : ''}. Signals: ${signals}.` },
+    { type: 'inv', label: 'INVESTIGATE · Evidence collected', details: `${evidenceSummary} Queried ${observations.logs.length} logs, current workload state, and deployment history.` },
     { type: 'diag', label: 'Diagnose', details: `${titleCase(diagnosis.probable_cause)} — ${diagnosis.summary}` },
-    { type: 'dec', label: 'Decide', details: `Selected ${decision.action}${decision.target != null ? ` → ${formatTarget(decision.target)}` : ''} at ${(decision.confidence * 100).toFixed(0)}% confidence (${decision.source || 'deterministic'}).` },
-    { type: 'safe', label: 'Safety Check', details: safety_result.checked ? `Policy ${safety_result.allowed ? 'allowed' : 'blocked'} ${safety_result.action}.` : 'No remediation was proposed; a policy check was not required.', customClass: safety_result.allowed === false ? 'verification-failure' : undefined },
-    { type: 'act', label: action_result.action === 'escalate' ? 'Escalate' : 'Remediate', details: action_result.message, customClass: action_result.success ? undefined : 'verification-failure' },
+    { type: 'dec', label: 'DECIDE', details: `${selectedAction} · ${(decision.confidence * 100).toFixed(0)}% confidence · ${decision.source || 'deterministic'}. ${decision.reason}` },
+    { type: 'safe', label: `SAFETY · ${safety_result.checked ? (safety_result.allowed ? 'APPROVED' : 'BLOCKED') : 'NOT REQUIRED'}`, details: safety_result.checked ? `Deterministic policy checked ${decision.action}; allowed range is 1–3 replicas and only bounded remediations are permitted.` : 'No remediation was proposed, so no mutation was authorized.', customClass: safety_result.allowed === false ? 'verification-failure' : 'safety-approved' },
+    { type: 'act', label: action_result.action === 'escalate' ? 'ESCALATED' : 'ACTION', details: `${action_result.success ? '✓ Command succeeded.' : '✗ Command failed.'} ${action_result.message}`, customClass: action_result.success ? 'execution-success' : 'verification-failure' },
   ];
   if (verification) {
-    steps.push({ type: 'ver', label: 'Verify Recovery', details: `${verification.reason}. Fresh telemetry confirms recovered=${verification.recovered ? 'true' : 'false'}.`, customClass: verification.recovered ? 'verification-success' : 'verification-failure' });
+    steps.push({ type: 'ver', label: 'VERIFY · Fresh telemetry', details: `CPU ${formatMetricPercent(after?.cpu_percent)} · Error rate ${after ? `${(after.error_rate * 100).toFixed(1)}%` : 'unavailable'} · Latency ${after ? `${after.latency_ms}ms` : 'unavailable'} · Replicas ${afterCapacity?.replicas ?? after?.replicas ?? capacity.replicas}${afterCapacity?.ready_replicas != null ? `/${afterCapacity.replicas} ready` : ''}.` });
+    steps.push({ type: 'result', label: `RESULT · ${verification.recovered ? 'PASSED' : 'FAILED'}`, details: verification.recovered ? `✓ ${verification.reason}. Incident recovery is verified.` : `✗ ${verification.reason}. The command succeeded, but the SLO is still violated.`, customClass: verification.recovered ? 'verification-success' : 'verification-failure' });
     if (!verification.recovered && index < total - 1) {
-      steps.push({ type: 'adapt', label: 'Adapt & Re-investigate', details: 'Verification rejected the remediation outcome. The controller retained the failure evidence and began a fresh attempt.', customClass: 'adapt-callout' });
+      const freshEvidence = attempt.new_evidence_after_action?.map(titleCase).join(', ') || 'new post-action evidence';
+      steps.push({ type: 'adapt', label: 'ADAPT · Re-investigate', details: `Verification rejected false success. The controller fetched fresh state and discovered ${freshEvidence}; the next action must follow that evidence.`, customClass: 'adapt-callout' });
     }
   }
   const succeeded = verification?.recovered === true;

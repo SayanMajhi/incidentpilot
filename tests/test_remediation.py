@@ -117,7 +117,7 @@ def test_rollback_deployment_does_not_claim_incident_resolved():
 # scale_service
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("replicas", [1, 3, 5])
+@pytest.mark.parametrize("replicas", [1, 2, 3])
 def test_scale_service_accepts_safe_values(replicas):
     """scale_service() should accept replica counts within the safe range."""
     result = remediation.scale_service(replicas)
@@ -180,8 +180,8 @@ def test_restart_clears_a_transient_outage():
 
 
 def test_reset_replicas_restores_the_baseline():
-    remediation.scale_service(4)
-    assert remediation.get_current_replicas() == 4
+    remediation.scale_service(3)
+    assert remediation.get_current_replicas() == 3
 
     assert remediation.reset_replicas() == remediation.MIN_REPLICAS
     assert remediation.get_current_replicas() == remediation.MIN_REPLICAS

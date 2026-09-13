@@ -11,6 +11,12 @@ def test_safe_scale_is_allowed():
 
 def test_excessive_scale_is_blocked():
     assert not policy.allows("scale_service", replicas=100)
+    assert not policy.allows("scale_service", replicas=4)
+
+
+def test_wrong_namespace_is_blocked():
+    assert not policy.allows("restart_service", namespace="default")
+    assert policy.allows("restart_service", namespace="incidentpilot")
 
 
 def test_database_delete_is_blocked():

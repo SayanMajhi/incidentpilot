@@ -457,6 +457,7 @@ class IncidentController:
             for _ in range(self.VERIFICATION_SAMPLES)
         ]
         health = self.infrastructure.check_health()
+        capacity = self.infrastructure.get_capacity()
 
         result = verifier.verify_sustained(samples)
 
@@ -465,10 +466,15 @@ class IncidentController:
                 "Health check still reports the service as unhealthy",
             )
 
-        result.metrics_after = dict(samples[-1])
+        result.metrics_after = {
+            **samples[-1],
+            "replicas": capacity.get("replicas"),
+            "ready_replicas": capacity.get("ready_replicas"),
+        }
         result.telemetry = {
             "metrics": samples[-1],
             "health": health,
+            "capacity": capacity,
             "samples": len(samples),
         }
 
@@ -658,6 +664,9 @@ class IncidentController:
 
             emit("verifying", attempt=attempt_number, action_result=action_result)
             verification = self.verify()
+            # The observation that justified this action is the before state;
+            # verify() already records independently fetched after metrics.
+            verification.metrics_before = dict(observation.get("metrics", {}))
 
             history.append(
                 self._record_attempt(

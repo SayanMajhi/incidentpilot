@@ -18,6 +18,8 @@ export interface ServiceState {
   status: 'healthy' | 'down' | 'degraded' | 'unknown';
   error_rate: number;
   latency_ms: number;
+  cpu_percent?: number | null;
+  memory_percent?: number | null;
   current_version: string;
 }
 
@@ -25,6 +27,10 @@ export interface MetricsResponse {
   error_rate: number;
   latency_ms: number;
   status: 'healthy' | 'down';
+  cpu_percent?: number | null;
+  memory_percent?: number | null;
+  replicas?: number | null;
+  ready_replicas?: number | null;
 }
 
 export interface SimulationActionResponse {
@@ -91,7 +97,7 @@ export interface VerificationState {
 }
 
 export interface AttemptStep {
-  type: 'obs' | 'inv' | 'diag' | 'dec' | 'safe' | 'act' | 'ver' | 'adapt';
+  type: 'obs' | 'inv' | 'diag' | 'dec' | 'safe' | 'act' | 'ver' | 'result' | 'adapt';
   label: string;
   details: string;
   customClass?: string;
@@ -149,6 +155,29 @@ export interface BackendDecision {
 export interface BackendVerification {
   recovered: boolean;
   reason: string;
+  status?: 'recovered' | 'failed';
+  metrics_before?: MetricsResponse | null;
+  metrics_after?: MetricsResponse | null;
+  telemetry?: {
+    metrics?: MetricsResponse;
+    capacity?: BackendCapacity;
+    samples?: number;
+  } | null;
+}
+
+export interface BackendEvidence {
+  id: string;
+  source: string;
+  signal: string;
+  detail: string;
+}
+
+export interface BackendCapacity {
+  replicas: number;
+  ready_replicas?: number;
+  restart_count?: number;
+  utilization?: number | null;
+  telemetry?: string;
 }
 
 export interface BackendSafetyResult {
@@ -171,11 +200,17 @@ export interface BackendAttempt {
   observations: {
     metrics: MetricsResponse;
     health: { status: string; is_healthy: boolean };
+    capacity: BackendCapacity;
     logs: BackendLogEntry[];
     current_version: string;
     deployment_history: Array<Record<string, unknown>>;
+    evidence?: BackendEvidence[];
     previous_attempt?: Record<string, unknown>;
   };
+  evidence?: BackendEvidence[];
+  new_evidence?: string[];
+  evidence_after_action?: BackendEvidence[] | null;
+  new_evidence_after_action?: string[] | null;
   detection: BackendDetection;
   diagnosis: BackendDiagnosis;
   decision: BackendDecision;

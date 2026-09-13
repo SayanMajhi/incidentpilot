@@ -52,6 +52,11 @@ def test_adaptive_api_run_rejects_false_success_then_recovers():
     assert result["attempts"][1]["verification"]["recovered"] is True
     assert result["attempts"][0]["detection"]["incident_detected"] is True
     assert result["attempts"][1]["diagnosis"]["probable_cause"] == "resource_exhaustion"
+    first, second = result["attempts"]
+    assert first["verification"]["metrics_before"]["cpu_percent"] == 94
+    assert first["verification"]["metrics_after"]["cpu_percent"] == 91
+    assert second["verification"]["metrics_after"]["cpu_percent"] == 48
+    assert second["verification"]["metrics_after"]["replicas"] == 3
 
 
 def test_reset_clears_all_cross_scenario_state():
@@ -66,6 +71,8 @@ def test_reset_clears_all_cross_scenario_state():
         "status": "healthy",
         "error_rate": 0.01,
         "latency_ms": 100,
+        "cpu_percent": 36,
+        "memory_percent": 41,
         "current_version": "v41",
     }
     assert status["scenario"] == "healthy"
@@ -156,6 +163,8 @@ def test_timeline_is_render_ready_and_carries_live_agent_phase():
     ):
         assert key in attempt, key
     assert "metrics" in attempt["observations"]
+    assert "evidence" in attempt
+    assert "new_evidence" in attempt
 
 
 def test_timeline_is_idle_before_any_run():

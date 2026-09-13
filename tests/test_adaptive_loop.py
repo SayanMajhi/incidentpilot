@@ -111,7 +111,13 @@ def test_failed_verification_causes_fresh_re_observation():
     # A new observation, not a reused one...
     assert after["observation_id"] > before["observation_id"]
     # ...that reflects the world *after* attempt 1's action.
-    assert before["metrics"] == {"status": "down", "error_rate": 0.70, "latency_ms": 1000}
+    assert before["metrics"] == {
+        "status": "down",
+        "error_rate": 0.70,
+        "latency_ms": 1000,
+        "cpu_percent": 94,
+        "memory_percent": 82,
+    }
     assert after["metrics"] == result["attempts"][0]["verification"].telemetry["metrics"]
     assert after["metrics"] != before["metrics"]
     assert before["capacity"]["utilization"] is None
@@ -161,11 +167,6 @@ def _world_capacity_shortfall():
     service.simulate_adaptive_incident()  # hung workers + 2.5x demand on 1 replica
 
 
-def _world_larger_capacity_shortfall():
-    service.simulate_adaptive_incident()
-    _set_causes(transient=True, load=4.5)
-
-
 def _world_hidden_bad_deployment():
     service.simulate_adaptive_incident()
     _set_causes(transient=True, bad_version=True)
@@ -175,11 +176,6 @@ _WORLDS = {
     "capacity_shortfall": (
         _world_capacity_shortfall,
         [("restart_service", None), ("scale_service", 3)],
-        "resolved",
-    ),
-    "larger_capacity_shortfall": (
-        _world_larger_capacity_shortfall,
-        [("restart_service", None), ("scale_service", 5)],
         "resolved",
     ),
     "hidden_bad_deployment": (
@@ -316,7 +312,7 @@ def test_insufficient_scaling_is_followed_by_a_larger_step_sized_from_fresh_tele
 
 def test_engine_driven_loop_stops_at_max_attempts_while_still_unresolved():
     """Hung workers, a bad deployment and an 8x traffic surge (more than the
-    5-replica safe maximum can absorb). Each attempt removes one cause the
+    3-replica safe maximum can absorb). Each attempt removes one cause the
     fresh evidence reveals, but the incident can never fully recover."""
     service.simulate_adaptive_incident()
     _set_causes(transient=True, load=8.0, bad_version=True)
@@ -327,7 +323,7 @@ def test_engine_driven_loop_stops_at_max_attempts_while_still_unresolved():
     assert actions(result) == [
         ("restart_service", None),
         ("rollback_deployment", "v41"),
-        ("scale_service", 5),
+        ("scale_service", 3),
     ]
     assert all(attempt["verification"].recovered is False for attempt in result["attempts"])
     assert result["status"] == "unresolved"
@@ -377,7 +373,7 @@ def test_unsupported_evidence_escalates_without_inventing_an_action():
 def test_capacity_shortfall_beyond_safe_maximum_escalates():
     service.simulate_adaptive_incident()
     _set_causes(transient=False, load=9.0)
-    remediation.scale_service(5)
+    remediation.scale_service(3)
 
     result = make_controller().run_incident()
 
@@ -483,11 +479,12 @@ def test_llm_cannot_repeat_a_remediation_that_already_failed_verification():
     assert first["decision"]["source"] == "llm"
     assert (first["decision"]["action"], first["decision"]["target"]) == ("scale_service", 3)
     assert first["verification"].recovered is False
-    # Attempt 2: the model repeats the failed step; the evidence-sized one wins.
+    # Attempt 2: the model repeats the failed maximum; arbitration escalates
+    # because no larger bounded action exists.
     assert second["decision"]["source"] == "deterministic_arbitration"
     assert second["decision"]["llm_proposal"]["target"] == 3
-    assert (second["decision"]["action"], second["decision"]["target"]) == ("scale_service", 5)
-    assert result["status"] == "resolved"
+    assert (second["decision"]["action"], second["decision"]["target"]) == ("escalate", None)
+    assert result["status"] == "escalated"
     assert llm.calls == 2
 
 

@@ -249,6 +249,10 @@ class KubernetesInfrastructure(Infrastructure):
             "status": "healthy" if healthy else "down",
             "error_rate": error_rate,
             "latency_ms": latency_ms,
+            # Resource utilization requires metrics-server or Prometheus.
+            # Keep absence explicit instead of inventing production data.
+            "cpu_percent": None,
+            "memory_percent": None,
             "ready_replicas": ready,
             "desired_replicas": desired,
             "probe_samples": len(samples),
@@ -265,9 +269,31 @@ class KubernetesInfrastructure(Infrastructure):
 
     def get_capacity(self) -> Dict[str, Any]:
         deployment = self._deployment()
+        pods = self.gateway.list_pods(
+            self.settings.namespace,
+            self._selector(deployment),
+        )
+        restart_count = sum(
+            int(status.get("restartCount", 0))
+            for pod in pods
+            for status in _get(pod, "status", "containerStatuses", default=[])
+        )
+        pod_statuses = [
+            {
+                "name": _get(pod, "metadata", "name", default=""),
+                "phase": _get(pod, "status", "phase", default="unknown"),
+                "ready": all(
+                    status.get("ready", False)
+                    for status in _get(pod, "status", "containerStatuses", default=[])
+                ),
+            }
+            for pod in pods
+        ]
         return {
             "replicas": int(_get(deployment, "spec", "replicas", default=1)),
             "ready_replicas": int(_get(deployment, "status", "readyReplicas", default=0)),
+            "restart_count": restart_count,
+            "pods": pod_statuses,
             "utilization": None,
             "telemetry": "unavailable",
         }

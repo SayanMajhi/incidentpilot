@@ -139,6 +139,8 @@ def get_metrics() -> Dict[str, Union[str, float, int]]:
         "status": metrics.status,
         "error_rate": metrics.error_rate,
         "latency_ms": metrics.latency_ms,
+        "cpu_percent": metrics.cpu_percent,
+        "memory_percent": metrics.memory_percent,
     }
 
 

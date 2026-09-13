@@ -155,7 +155,7 @@ cluster yet.
 | `K8S_PROBE_PATH` | `/` | HTTP path probed on the Service. |
 | `K8S_CONTEXT` | active context | Kubeconfig context to use. Must be allow-listed. |
 | `K8S_ALLOWED_CONTEXTS` | `kind-incidentpilot,minikube,docker-desktop` | Contexts IncidentPilot may connect through. |
-| `K8S_MIN_REPLICAS` / `K8S_MAX_REPLICAS` | `1` / `5` | May narrow, never widen, the shared SLO bounds. |
+| `K8S_MIN_REPLICAS` / `K8S_MAX_REPLICAS` | `1` / `3` | May narrow, never widen, the shared SLO bounds. |
 | `K8S_PROBE_SAMPLES` | `5` | Probes per metrics reading (1-20). |
 | `K8S_PROBE_TIMEOUT_SECONDS` | `2` | Per-probe timeout (up to 10). |
 | `K8S_LOG_TAIL_LINES` | `20` | Pod log lines read per pod (1-200). |

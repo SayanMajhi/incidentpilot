@@ -858,6 +858,32 @@
   font-weight: 500;
 }
 
+.incidentpilot-root .step-details.safety-approved,
+.incidentpilot-root .step-details.execution-success {
+  border-color: var(--emerald-border);
+  background: var(--emerald-surface);
+  color: #a7f3d0;
+}
+
+.incidentpilot-root .adaptation-bridge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: -10px 0;
+  color: var(--peach);
+  font-size: .78rem;
+  letter-spacing: .02em;
+}
+
+.incidentpilot-root .adaptation-bridge strong {
+  padding: 4px 9px;
+  border: 1px solid var(--peach-border);
+  border-radius: 999px;
+  background: var(--burgundy-surface);
+  font-family: var(--font-mono);
+}
+
 /* Final Resolution Banner */
 
 .incidentpilot-root .resolution-banner {

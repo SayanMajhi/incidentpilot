@@ -122,6 +122,40 @@ def capacity_utilization() -> float:
     return round(state._load_units / max(state._replicas, 1), 2)
 
 
+def cpu_percent() -> int:
+    """Return deterministic CPU telemetry derived from active causes."""
+    adaptive_load = state._load_units > BASELINE_LOAD_UNITS
+    utilization = capacity_utilization()
+
+    if transient_fault_active():
+        # Hung workers mask every cause behind them. Keep the same CPU signal
+        # regardless of hidden load or deployment state until restart.
+        return 94
+    if deployment_regression_active():
+        return 62
+    if utilization > 1.0:
+        return 91
+    if adaptive_load:
+        return 48
+    return 36
+
+
+def memory_percent() -> int:
+    """Return deterministic memory telemetry derived from active causes."""
+    adaptive_load = state._load_units > BASELINE_LOAD_UNITS
+    utilization = capacity_utilization()
+
+    if transient_fault_active():
+        return 82
+    if deployment_regression_active():
+        return 64
+    if utilization > 1.0:
+        return 78
+    if adaptive_load:
+        return 44
+    return 41
+
+
 def set_replicas(replicas: int) -> None:
     """Provision ``replicas`` replicas and let the symptoms follow."""
     state._replicas = replicas
@@ -235,6 +269,8 @@ class MetricsResponse(BaseModel):
     error_rate: float
     latency_ms: int
     status: Literal["healthy", "down"]
+    cpu_percent: int
+    memory_percent: int
 class VersionResponse(BaseModel):
     """response model for the/version endpoint"""
     current_version: str
@@ -262,6 +298,8 @@ def get_metrics() -> MetricsResponse:
         error_rate=state.error_rate,
         latency_ms=state.latency_ms,
         status=state.status,
+        cpu_percent=cpu_percent(),
+        memory_percent=memory_percent(),
     )
 
 @app.get("/version", response_model=VersionResponse, dependencies=[Depends(require_simulator)])
@@ -540,6 +578,8 @@ def get_incident_status():
             "status": metrics["status"],
             "error_rate": metrics["error_rate"],
             "latency_ms": metrics["latency_ms"],
+            "cpu_percent": metrics.get("cpu_percent"),
+            "memory_percent": metrics.get("memory_percent"),
             "current_version": infrastructure.get_current_version(),
         }
         replicas = infrastructure.get_capacity()["replicas"]
@@ -592,11 +632,15 @@ def get_incident_timeline():
                 "attempt": attempt.get("attempt", index),
                 "observations": attempt.get("observations", {}),
                 "detection": attempt.get("detection", {}),
+                "evidence": attempt.get("evidence", []),
+                "new_evidence": attempt.get("new_evidence", []),
                 "diagnosis": attempt.get("diagnosis", {}),
                 "decision": attempt.get("decision", {}),
                 "safety_result": attempt.get("safety_result", {}),
                 "action_result": attempt.get("action_result", {}),
                 "verification": verification,
+                "evidence_after_action": attempt.get("evidence_after_action"),
+                "new_evidence_after_action": attempt.get("new_evidence_after_action"),
             })
 
     return {

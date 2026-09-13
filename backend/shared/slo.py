@@ -55,7 +55,7 @@ ELEVATED_LATENCY_MS: int = 300
 # ---------------------------------------------------------------------------
 
 MIN_REPLICAS: int = 1
-MAX_REPLICAS: int = 5
+MAX_REPLICAS: int = 3
 
 # Upper bound of the dashboard latency chart's y-axis, in milliseconds.
 LATENCY_CHART_CEILING_MS: int = 1200
