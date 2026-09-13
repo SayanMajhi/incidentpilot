@@ -1,0 +1,11 @@
+spec:
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/version: v42
+    spec:
+      containers:
+        - name: app
+          env:
+            - name: MODE
+              value: bad-deployment

@@ -1,34 +1,5 @@
 from backend.shared import slo
-
-
-class VerificationResult:
-    """
-    Represents the result of an incident recovery verification.
-
-    The result is kept as a small object internally, but provides
-    dictionary conversion and a readable representation so it can
-    safely be returned by APIs, printed in the terminal, or stored
-    in execution history.
-    """
-
-    def __init__(self, recovered, reason):
-        self.recovered = bool(recovered)
-        self.reason = str(reason)
-
-    def to_dict(self):
-        """
-        Convert the verification result into a JSON-friendly dictionary.
-        """
-        return {
-            "recovered": self.recovered,
-            "reason": self.reason,
-        }
-
-    def __repr__(self):
-        """
-        Make pprint()/debug output readable.
-        """
-        return repr(self.to_dict())
+from backend.models import VerificationResult
 
 
 class Verifier:
@@ -84,6 +55,13 @@ class Verifier:
                 "Metrics contain invalid numeric values"
             )
 
+        # A reported non-healthy status overrides otherwise passing numbers.
+        if metrics.get("status") not in (None, "healthy"):
+            return VerificationResult(
+                False,
+                "Service metrics are still unhealthy"
+            )
+
         # Healthy.
         if (
                 error_rate <= self.MAX_ERROR_RATE
@@ -121,11 +99,13 @@ class Verifier:
                 "No observations available"
             )
 
-        for metrics in observations:
+        for index, metrics in enumerate(observations):
 
             result = self.verify(metrics)
 
             if not result.recovered:
+                if index == 0:
+                    return result
                 return VerificationResult(
                     False,
                     "Service became unhealthy during verification"

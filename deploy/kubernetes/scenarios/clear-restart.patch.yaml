@@ -1,0 +1,5 @@
+spec:
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/restartedAt: null

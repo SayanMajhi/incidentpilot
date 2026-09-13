@@ -18,6 +18,8 @@ export interface ServiceState {
   status: 'healthy' | 'down' | 'degraded' | 'unknown';
   error_rate: number;
   latency_ms: number;
+  cpu_percent?: number | null;
+  memory_percent?: number | null;
   current_version: string;
 }
 
@@ -25,6 +27,10 @@ export interface MetricsResponse {
   error_rate: number;
   latency_ms: number;
   status: 'healthy' | 'down';
+  cpu_percent?: number | null;
+  memory_percent?: number | null;
+  replicas?: number | null;
+  ready_replicas?: number | null;
 }
 
 export interface SimulationActionResponse {
@@ -43,9 +49,16 @@ export interface RuntimeConfig {
 }
 
 export interface AgentRunState {
+  run_id: string | null;
+  goal: string;
+  started_at: string | null;
   running: boolean;
+  status: IncidentStatus | 'running';
   phase: string;
   attempt: number;
+  max_attempts: number;
+  history: BackendAttempt[];
+  reason: string | null;
   updated_at: string | null;
   details: Record<string, unknown>;
 }
@@ -63,6 +76,8 @@ export interface IncidentSummary {
   finalAction: string;
   finalVerification: string;
   finalOutcome: string;
+  diagnosis: string;
+  evidence: string;
 }
 
 export interface DecisionDetails {
@@ -71,6 +86,9 @@ export interface DecisionDetails {
   target: string;
   confidence: string;
   reason: string;
+  aiSuggestion: string;
+  validation: string;
+  validationReason: string;
 }
 
 export interface SafetyState {
@@ -88,10 +106,12 @@ export interface VerificationState {
   errorRate: string;
   latency: string;
   serviceStatus: string;
+  metricsBefore: string;
+  metricsAfter: string;
 }
 
 export interface AttemptStep {
-  type: 'obs' | 'inv' | 'diag' | 'dec' | 'safe' | 'act' | 'ver' | 'adapt';
+  type: 'obs' | 'inv' | 'diag' | 'dec' | 'safe' | 'act' | 'ver' | 'result' | 'adapt';
   label: string;
   details: string;
   customClass?: string;
@@ -104,6 +124,13 @@ export interface Attempt {
   statusText: string;
   statusClass: 'running' | 'success' | 'retry';
   steps: AttemptStep[];
+  inspector: {
+    summary: IncidentSummary;
+    decision: DecisionDetails;
+    safety: SafetyState;
+    verification: VerificationState;
+    logs: LogEntry[];
+  };
 }
 
 export interface ResolutionBanner {
@@ -144,11 +171,44 @@ export interface BackendDecision {
   source?: string;
   fallback_reason?: string;
   arbitration_reason?: string;
+  llm_proposal?: {
+    action: string;
+    target: string | number | null;
+    reason: string;
+    confidence: number;
+  };
+  deterministic_validation?: {
+    status: 'accepted' | 'rejected';
+    reason: string;
+  };
 }
 
 export interface BackendVerification {
   recovered: boolean;
   reason: string;
+  status?: 'recovered' | 'failed';
+  metrics_before?: MetricsResponse | null;
+  metrics_after?: MetricsResponse | null;
+  telemetry?: {
+    metrics?: MetricsResponse;
+    capacity?: BackendCapacity;
+    samples?: number;
+  } | null;
+}
+
+export interface BackendEvidence {
+  id: string;
+  source: string;
+  signal: string;
+  detail: string;
+}
+
+export interface BackendCapacity {
+  replicas: number;
+  ready_replicas?: number;
+  restart_count?: number;
+  utilization?: number | null;
+  telemetry?: string;
 }
 
 export interface BackendSafetyResult {
@@ -171,11 +231,17 @@ export interface BackendAttempt {
   observations: {
     metrics: MetricsResponse;
     health: { status: string; is_healthy: boolean };
+    capacity: BackendCapacity;
     logs: BackendLogEntry[];
     current_version: string;
     deployment_history: Array<Record<string, unknown>>;
+    evidence?: BackendEvidence[];
     previous_attempt?: Record<string, unknown>;
   };
+  evidence?: BackendEvidence[];
+  new_evidence?: string[];
+  evidence_after_action?: BackendEvidence[] | null;
+  new_evidence_after_action?: string[] | null;
   detection: BackendDetection;
   diagnosis: BackendDiagnosis;
   decision: BackendDecision;
@@ -187,11 +253,19 @@ export interface BackendAttempt {
 export type IncidentStatus = 'resolved' | 'unresolved' | 'blocked' | 'escalated' | 'idle';
 
 export interface IncidentResult {
+  run_id: string;
+  goal: string;
+  started_at: string;
+  completed_at: string;
+  phase: string;
+  attempt: number;
+  history: BackendAttempt[];
   attempts: BackendAttempt[];
   status: Exclude<IncidentStatus, 'idle'>;
   decision: BackendDecision;
   action_result: BackendActionResult;
   verification: BackendVerification | null;
+  reason: string | null;
 }
 
 /** `GET /status` — live service state plus the agent's live run progress. */
@@ -210,6 +284,10 @@ export interface IncidentStatusResponse {
 /** `GET /timeline` — the render-ready execution history for the timeline. */
 export interface TimelineResponse {
   status: IncidentStatus;
+  run_id: string | null;
+  goal: string;
+  started_at: string | null;
+  reason: string | null;
   agent: AgentRunState;
   attempt_count: number;
   timeline: BackendAttempt[];

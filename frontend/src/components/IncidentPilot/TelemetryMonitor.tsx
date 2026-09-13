@@ -56,11 +56,9 @@ export const TelemetryMonitor: React.FC<TelemetryMonitorProps> = ({ telemetryBuf
     const plotW = w - padX - 10;
     const plotH = h - padY * 2;
 
-    // Background gridlines
     ctx.strokeStyle = 'rgba(56, 67, 88, 0.4)';
     ctx.lineWidth = 1;
 
-    // Horizontal gridlines (4 steps)
     for (let i = 0; i <= 4; i++) {
       const y = padY + (plotH / 4) * i;
       ctx.beginPath();
@@ -103,7 +101,6 @@ export const TelemetryMonitor: React.FC<TelemetryMonitorProps> = ({ telemetryBuf
 
     const step = plotW / Math.max(maxSamples - 1, 1);
 
-    // 1. Draw the latency trace.
     ctx.beginPath();
     telemetryBuffer.forEach((pt, idx) => {
       const x = padX + idx * step;
@@ -116,7 +113,6 @@ export const TelemetryMonitor: React.FC<TelemetryMonitorProps> = ({ telemetryBuf
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // 2. Draw the error-rate trace.
     ctx.beginPath();
     telemetryBuffer.forEach((pt, idx) => {
       const x = padX + idx * step;
@@ -129,7 +125,6 @@ export const TelemetryMonitor: React.FC<TelemetryMonitorProps> = ({ telemetryBuf
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // Highlight latest data points on right edge
     const lastPt = telemetryBuffer[telemetryBuffer.length - 1];
     const lastX = padX + (telemetryBuffer.length - 1) * step;
 
@@ -148,7 +143,6 @@ export const TelemetryMonitor: React.FC<TelemetryMonitorProps> = ({ telemetryBuf
     ctx.restore();
   }, [telemetryBuffer, maxSamples, alertErrorRate, alertLatencyMs, latencyCeiling]);
 
-  // Redraw whenever the buffer or the thresholds change.
   useEffect(() => { renderCanvas(); }, [renderCanvas]);
 
   // Register the resize listener once, and read the latest renderer from a ref

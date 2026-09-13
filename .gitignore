@@ -23,9 +23,9 @@ build/
 
 # Logs
 *.log
+.incidentpilot-kubernetes-run.json
 
 # Editors / OS
 .vscode/
 .idea/
 .DS_Store
-node_modules/

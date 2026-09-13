@@ -38,11 +38,14 @@ export const InspectorTabs: React.FC<InspectorTabsProps> = ({ summary, decision,
           <Row label="Active scenario" value={summary.scenario} /><Row label="Agent status" value={summary.agentStatus} />
           <Row label="Total attempts" value={summary.attempts} /><Row label="Final action" value={summary.finalAction} />
           <Row label="Final verification" value={summary.finalVerification} /><Row label="Final outcome" value={summary.finalOutcome} />
+          <Row label="Diagnosis" value={summary.diagnosis} /><Row label="Evidence" value={summary.evidence} />
         </dl>}
         {activeTab === 'decision' && <dl>
           <Row label="Source" value={decision.source} /><Row label="Proposed action" value={decision.action} />
           <Row label="Target" value={decision.target} /><Row label="Confidence" value={decision.confidence} />
           <Row label="Reasoning" value={decision.reason} />
+          <Row label="AI suggestion" value={decision.aiSuggestion} /><Row label="Deterministic validation" value={decision.validation} />
+          <Row label="Validation reason" value={decision.validationReason} />
         </dl>}
         {activeTab === 'safety' && <dl>
           <Row label="Status" value={safety.status} /><Row label="Action checked" value={safety.action} />
@@ -52,6 +55,7 @@ export const InspectorTabs: React.FC<InspectorTabsProps> = ({ summary, decision,
           <Row label="Status" value={verification.status} /><Row label="Recovered" value={verification.recovered} />
           <Row label="Telemetry result" value={verification.reason} /><Row label="Error rate" value={verification.errorRate} />
           <Row label="Latency" value={verification.latency} /><Row label="Live status" value={verification.serviceStatus} />
+          <Row label="Metrics before" value={verification.metricsBefore} /><Row label="Metrics after" value={verification.metricsAfter} />
         </dl>}
         {activeTab === 'logs' && <div className="logs-container" role="log" aria-label="System diagnostic logs">
           {logs.length ? logs.map((log) => <div key={log.id} className="log-line"><span className="log-time">{log.time}</span><span className={`log-level ${log.level}`}>{log.level}</span><span className="log-msg">{log.message}</span></div>) : <p className="inspector-empty">No diagnostic logs have been received.</p>}

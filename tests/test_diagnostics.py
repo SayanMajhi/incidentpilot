@@ -32,6 +32,8 @@ def test_get_metrics_healthy():
         "status": "healthy",
         "error_rate": 0.01,
         "latency_ms": 100,
+        "cpu_percent": 36,
+        "memory_percent": 41,
     }
 
 

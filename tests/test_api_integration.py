@@ -43,6 +43,9 @@ def test_adaptive_api_run_rejects_false_success_then_recovers():
 
     assert response.status_code == 200
     result = response.json()["result"]
+    assert result["run_id"].startswith("inc-")
+    assert result["goal"]
+    assert result["started_at"]
     assert result["status"] == "resolved"
     assert [item["decision"]["action"] for item in result["attempts"]] == [
         "restart_service",
@@ -52,6 +55,11 @@ def test_adaptive_api_run_rejects_false_success_then_recovers():
     assert result["attempts"][1]["verification"]["recovered"] is True
     assert result["attempts"][0]["detection"]["incident_detected"] is True
     assert result["attempts"][1]["diagnosis"]["probable_cause"] == "resource_exhaustion"
+    first, second = result["attempts"]
+    assert first["verification"]["metrics_before"]["cpu_percent"] == 94
+    assert first["verification"]["metrics_after"]["cpu_percent"] == 91
+    assert second["verification"]["metrics_after"]["cpu_percent"] == 48
+    assert second["verification"]["metrics_after"]["replicas"] == 3
 
 
 def test_reset_clears_all_cross_scenario_state():
@@ -66,12 +74,15 @@ def test_reset_clears_all_cross_scenario_state():
         "status": "healthy",
         "error_rate": 0.01,
         "latency_ms": 100,
+        "cpu_percent": 36,
+        "memory_percent": 41,
         "current_version": "v41",
     }
     assert status["scenario"] == "healthy"
     assert status["replicas"] == 1
     assert status["incident"] is None
-    assert service.adaptive_incident_active is False
+    assert service.transient_fault_active() is False
+    assert service.capacity_utilization() <= 1.0
 
 
 def test_duplicate_incident_runs_are_rejected():
@@ -141,6 +152,9 @@ def test_timeline_is_render_ready_and_carries_live_agent_phase():
     assert payload["status"] == "resolved"
     assert payload["attempt_count"] == len(payload["timeline"]) >= 1
     assert payload["agent"]["running"] is False
+    assert payload["run_id"].startswith("inc-")
+    assert payload["goal"]
+    assert payload["agent"]["history"]
 
     attempt = payload["timeline"][0]
     for key in (
@@ -155,6 +169,8 @@ def test_timeline_is_render_ready_and_carries_live_agent_phase():
     ):
         assert key in attempt, key
     assert "metrics" in attempt["observations"]
+    assert "evidence" in attempt
+    assert "new_evidence" in attempt
 
 
 def test_timeline_is_idle_before_any_run():

@@ -9,6 +9,7 @@ const STEP_ICONS: Record<string, string> = {
   safe: '\uD83D\uDEE1',  // 🛡️
   act: '\u2699',         // ⚙️
   ver: '\uD83D\uDD0E',   // 🔎
+  result: '\u2713',       // ✓
   adapt: '\uD83D\uDD04', // 🔄
 };
 
@@ -60,7 +61,7 @@ export const AgentExecutionTimeline: React.FC<AgentExecutionTimelineProps> = ({
             </div>
           </div>
         ) : (
-          attempts.map((attempt) => {
+          attempts.map((attempt, index) => {
             let stateClass = 'active-attempt';
             if (attempt.statusClass === 'success') {
               stateClass = 'resolved-attempt';
@@ -69,10 +70,19 @@ export const AgentExecutionTimeline: React.FC<AgentExecutionTimelineProps> = ({
             }
 
             return (
+              <React.Fragment key={attempt.id}>
+              {index > 0 && (
+                <div className="adaptation-bridge" aria-label="Agent adapted after failed verification">
+                  <span>↓</span>
+                  <strong>ADAPT</strong>
+                  <span>Fresh evidence changed the next decision</span>
+                </div>
+              )}
               <details
                 key={attempt.id}
                 className={`attempt-card ${stateClass} ${selectedAttemptNumber === attempt.number ? 'selected-attempt' : ''}`}
                 id={attempt.id}
+                open
                 onToggle={(event) => { if (event.currentTarget.open) onSelectAttempt(attempt); }}
               >
                 <summary className="attempt-header">
@@ -100,6 +110,7 @@ export const AgentExecutionTimeline: React.FC<AgentExecutionTimelineProps> = ({
                   ))}
                 </div>
               </details>
+              </React.Fragment>
             );
           })
         )}

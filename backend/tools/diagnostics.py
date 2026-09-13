@@ -1,27 +1,9 @@
-"""
-IncidentPilot - Diagnostic Tools
-=================================
-
-This module implements the diagnostic tools that a future AI
-incident-response agent will use to investigate the health of the
-simulated production service defined in `backend/simulator/service.py`.
-
-Each function below is a small, independent, reusable Python function
-that reads from the simulator's in-memory state and returns plain,
-structured Python data.
-
-Nothing here is random, non-deterministic, or dependent on an LLM or
-any external service.
-"""
+"""Diagnostic reads for the simulator."""
 
 from typing import Dict, List, Union
 
 from backend.simulator import service
 
-
-# ---------------------------------------------------------------------------
-# Simulated log messages
-# ---------------------------------------------------------------------------
 
 _HEALTHY_LOG_TEMPLATE: List[Dict[str, str]] = [
     {
@@ -100,10 +82,6 @@ _BAD_DEPLOYMENT_LOG_TEMPLATE: List[Dict[str, str]] = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# Deterministic deployment history
-# ---------------------------------------------------------------------------
-
 _DEPLOYMENT_HISTORY: List[Dict[str, Union[str, int]]] = [
     {
         "version": "v39",
@@ -126,10 +104,6 @@ _DEPLOYMENT_HISTORY: List[Dict[str, Union[str, int]]] = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# Diagnostic tools
-# ---------------------------------------------------------------------------
-
 def get_metrics() -> Dict[str, Union[str, float, int]]:
     """Read the current metrics from the simulator."""
 
@@ -139,6 +113,8 @@ def get_metrics() -> Dict[str, Union[str, float, int]]:
         "status": metrics.status,
         "error_rate": metrics.error_rate,
         "latency_ms": metrics.latency_ms,
+        "cpu_percent": metrics.cpu_percent,
+        "memory_percent": metrics.memory_percent,
     }
 
 
@@ -154,30 +130,62 @@ def check_health() -> Dict[str, Union[str, bool]]:
 
 
 def get_current_version() -> str:
-    """Get the current deployed application version."""
-
     version = service.get_version()
 
     return version.current_version
 
 
+def _capacity_pressure_logs() -> List[Dict[str, str]]:
+    """Logs a service emits while demand exceeds its provisioned capacity."""
+    replicas = service.get_replicas()
+    utilization_pct = int(round(service.capacity_utilization() * 100))
+
+    return [
+        {
+            "timestamp": "2026-09-10T09:15:00Z",
+            "level": "ERROR",
+            "message": (
+                "Connection pool exhausted: all upstream connections are in "
+                f"use across {replicas} replica(s)."
+            ),
+        },
+        {
+            "timestamp": "2026-09-10T09:15:02Z",
+            "level": "ERROR",
+            "message": "POST /api/checkout rejected: request queue is full.",
+        },
+        {
+            "timestamp": "2026-09-10T09:15:04Z",
+            "level": "WARNING",
+            "message": (
+                f"Resource pressure: CPU utilization at {utilization_pct}% of "
+                "provisioned capacity."
+            ),
+        },
+        {
+            "timestamp": "2026-09-10T09:15:06Z",
+            "level": "INFO",
+            "message": "Worker processes are responsive and accepting connections.",
+        },
+    ]
+
+
 def query_logs() -> List[Dict[str, str]]:
     """Return deterministic simulated logs for the current service state.
 
-    The diagnostic evidence changes depending on the current incident:
+    Logs are rendered from whichever incident cause is currently dominant,
+    never from the name of the active scenario:
 
     1. Healthy service
-    2. Adaptive incident after failed restart
-    3. Bad deployment
-    4. Generic outage
+    2. Hung workers - requests time out before reaching application code,
+       so they mask any application-level evidence behind them
+    3. Bad deployment running
+    4. Capacity shortfall
+    5. Unhealthy for an unmodelled reason - generic outage symptoms
 
-    The adaptive incident is deliberately checked before the generic
-    outage because its state is also unhealthy.
+    Because hung workers mask the other causes, clearing them (a restart)
+    can reveal evidence that simply was not observable before.
     """
-
-    # -----------------------------------------------------------------------
-    # HEALTHY SERVICE
-    # -----------------------------------------------------------------------
 
     if service.state.status == "healthy":
         return [
@@ -185,56 +193,20 @@ def query_logs() -> List[Dict[str, str]]:
             for entry in _HEALTHY_LOG_TEMPLATE
         ]
 
-    # -----------------------------------------------------------------------
-    # ADAPTIVE INCIDENT AFTER FAILED RESTART
-    # -----------------------------------------------------------------------
-
-    if (
-            service.adaptive_incident_active
-            and service.adaptive_restart_attempted
-    ):
-        adaptive_logs = [
+    if service.transient_fault_active():
+        return [
             dict(entry)
             for entry in _OUTAGE_LOG_TEMPLATE
         ]
 
-        adaptive_logs.append(
-            {
-                "timestamp": "2026-09-10T09:05:10Z",
-                "level": "ERROR",
-                "message": (
-                    "Connection pool exhausted: upstream connections are "
-                    "saturated and requests are timing out."
-                ),
-            }
-        )
-
-        adaptive_logs.append(
-            {
-                "timestamp": "2026-09-10T09:05:12Z",
-                "level": "WARNING",
-                "message": (
-                    "Resource pressure detected after restart; "
-                    "additional service capacity may be required."
-                ),
-            }
-        )
-
-        return adaptive_logs
-
-    # -----------------------------------------------------------------------
-    # BAD DEPLOYMENT
-    # -----------------------------------------------------------------------
-
-    if service.state.current_version == service.BAD_DEPLOYMENT_VERSION:
+    if service.deployment_regression_active():
         return [
             dict(entry)
             for entry in _BAD_DEPLOYMENT_LOG_TEMPLATE
         ]
 
-    # -----------------------------------------------------------------------
-    # GENERIC OUTAGE
-    # -----------------------------------------------------------------------
+    if service.capacity_utilization() > 1.0:
+        return _capacity_pressure_logs()
 
     return [
         dict(entry)
@@ -242,9 +214,30 @@ def query_logs() -> List[Dict[str, str]]:
     ]
 
 
-def get_deployment_history() -> List[Dict[str, Union[str, int]]]:
-    """Return a deterministic list of recent deployments."""
+def get_capacity() -> Dict[str, Union[str, int, float, None]]:
+    """Read provisioned replicas and utilization from the simulator.
 
+    Hung workers stop reporting utilization, so while they are hung the
+    utilization reading is unavailable rather than invented.
+    """
+
+    replicas = service.get_replicas()
+
+    if service.transient_fault_active():
+        return {
+            "replicas": replicas,
+            "utilization": None,
+            "telemetry": "unavailable",
+        }
+
+    return {
+        "replicas": replicas,
+        "utilization": service.capacity_utilization(),
+        "telemetry": "available",
+    }
+
+
+def get_deployment_history() -> List[Dict[str, Union[str, int]]]:
     return [
         dict(entry)
         for entry in _DEPLOYMENT_HISTORY

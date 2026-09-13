@@ -5,6 +5,20 @@ from backend.simulator import service
 from backend.tools import diagnostics
 
 
+def test_neutral_workload_version_summary_is_not_deployment_failure_evidence():
+    """A routine status line mentioning v41 must not imply a bad release."""
+    observations = {
+        "logs": ["Workload incidentpilot-demo: 0/1 replicas ready, running v41."],
+        "current_version": "v41",
+        "metrics": {"error_rate": 0.70, "latency_ms": 1000},
+    }
+
+    decision = decision_engine.decide(observations)
+
+    assert decision["action"] == "escalate"
+    assert decision["diagnosis"] == "undetermined"
+
+
 # ---------------------------------------------------------------------------
 # A. Bad deployment -> rollback_deployment, target = previous stable version
 # ---------------------------------------------------------------------------

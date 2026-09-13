@@ -15,11 +15,19 @@ from backend.shared import slo
 class SafetyPolicy:
     """Allow-list of bounded actions the agent may execute."""
 
+    ALLOWED_NAMESPACE = "incidentpilot"
     MIN_REPLICAS = slo.MIN_REPLICAS
     MAX_REPLICAS = slo.MAX_REPLICAS
 
     def allows(self, action: str, **kwargs: Any) -> bool:
         """Return True only for a known action within its declared bounds."""
+        # Existing callers omit the scope because both infrastructure
+        # adapters are pre-bound to the demo target. Any explicitly supplied
+        # scope must still match the one namespace IncidentPilot owns.
+        namespace = kwargs.get("namespace", self.ALLOWED_NAMESPACE)
+        if namespace != self.ALLOWED_NAMESPACE:
+            return False
+
         if action == "restart_service":
             return True
 

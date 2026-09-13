@@ -1,98 +1,125 @@
+import itertools
 import os
+import time
+from datetime import datetime, timezone
+from uuid import uuid4
 
-from backend.agent.decision import decision_engine
+from backend.agent.decision import collect_evidence, decision_engine, find_failed_attempt
 from backend.agent.llm_decision import llm_decision_engine
 from backend.safety.policy import policy
-from backend.tools import diagnostics, remediation
+from backend.infrastructure import get_infrastructure
+from backend.models import TraceEvent, TracePhase
 from backend.verification.verifier import verifier
 
 
 MAX_ATTEMPTS = 3
 
+# Independent fresh telemetry samples taken after every action. Recovery is
+# only confirmed when every one of them is healthy.
+VERIFICATION_SAMPLES = 3
+DEFAULT_GOAL = "Restore the service to configured SLOs while respecting safety constraints."
+MAX_ATTEMPTS_REASON = "Maximum remediation attempts exhausted"
+
 
 class IncidentController:
     MAX_ATTEMPTS = MAX_ATTEMPTS
+    VERIFICATION_SAMPLES = VERIFICATION_SAMPLES
 
     def __init__(
             self,
             use_llm=None,
             llm_engine=None,
             deterministic_engine=None,
+        infrastructure=None,
+        verification_interval_seconds=None,
+        sleep_func=None,
     ):
         if use_llm is None:
-            use_llm = (
-                    os.getenv(
-                        "LLM_ENABLED",
-                        "false",
-                    ).lower()
-                    == "true"
-            )
+            use_llm = os.getenv("LLM_ENABLED", "false").lower() == "true"
 
         self.use_llm = use_llm
-
-        self.llm_engine = (
-            llm_engine
-            if llm_engine is not None
-            else llm_decision_engine
-        )
-
+        self.llm_engine = llm_engine if llm_engine is not None else llm_decision_engine
         self.deterministic_engine = (
             deterministic_engine
             if deterministic_engine is not None
             else decision_engine
         )
+        # The execution environment this controller observes and acts on,
+        # chosen by configuration. The controller never knows which one it is.
+        self._infrastructure = infrastructure
+        self._observation_ids = itertools.count(1)
+        if verification_interval_seconds is None:
+            verification_interval_seconds = os.getenv(
+                "VERIFICATION_INTERVAL_SECONDS",
+                "1",
+            )
+        self.verification_interval_seconds = float(verification_interval_seconds)
+        if self.verification_interval_seconds < 0:
+            raise ValueError("VERIFICATION_INTERVAL_SECONDS cannot be negative")
+        self._sleep = sleep_func or time.sleep
 
-    # ---------------------------------------------------------
-    # OBSERVE
-    # ---------------------------------------------------------
+    @property
+    def infrastructure(self):
+        if self._infrastructure is None:
+            self._infrastructure = get_infrastructure()
+        return self._infrastructure
 
-    def investigate(self):
+    def observe(self):
         """
-        Collect a fresh snapshot of the simulated service.
+        Collect a fresh telemetry snapshot of the service.
 
-        Every incident attempt performs a new observation so that
-        the controller can adapt after remediation failure.
+        Every call reads the live environment again and is stamped with a new,
+        monotonically increasing ``observation_id``, so the audit trail shows
+        that each attempt reasoned over its own observation rather than a
+        cached one.
         """
         return {
-            "metrics": diagnostics.get_metrics(),
-            "health": diagnostics.check_health(),
-            "logs": diagnostics.query_logs(),
-            "current_version": diagnostics.get_current_version(),
-            "deployment_history": diagnostics.get_deployment_history(),
+            "observation_id": next(self._observation_ids),
+            "observed_at": datetime.now(timezone.utc).isoformat(),
+            "metrics": self.infrastructure.get_metrics(),
+            "health": self.infrastructure.check_health(),
+            "current_version": self.infrastructure.get_current_version(),
+            "capacity": self.infrastructure.get_capacity(),
         }
 
-    # ---------------------------------------------------------
-    # DECIDE
-    # ---------------------------------------------------------
-
-    def decide(self, observations):
+    def investigate(self, observation=None):
         """
-        Decide what to do next.
+        Gather diagnostic evidence on top of a telemetry snapshot.
 
-        Architecture:
-
-            Observation
-                ↓
-            Deterministic evidence
-                ↓
-            LLM proposal
-                ↓
-            Arbitration
-                ↓
-            Final decision
-
-        The LLM proposes actions, but deterministic evidence can
-        override the proposal when there is strong evidence for a
-        safer/more appropriate remediation.
-
-        This prevents the LLM from becoming the sole authority for
-        remediation decisions.
+        Queries logs and deployment history, then extracts discrete evidence
+        items from everything observed. When no snapshot is supplied a fresh
+        one is taken first.
         """
+        observations = dict(observation) if observation is not None else self.observe()
 
-        # -----------------------------------------------------
-        # HEALTHY SERVICE
-        # -----------------------------------------------------
+        observations["logs"] = self.infrastructure.query_logs()
+        observations["deployment_history"] = self.infrastructure.get_deployment_history()
+        observations["evidence"] = collect_evidence(observations)
 
+        return observations
+
+    def diagnose(self, observations):
+        """
+        Rank the causes the evidence supports, before any action is chosen.
+
+        Hypotheses whose remediation already failed verification during this
+        run are ruled out, which is what makes a re-diagnosis after a failed
+        attempt differ from the first one when - and only when - the fresh
+        evidence supports something else.
+        """
+        diagnose = getattr(self.deterministic_engine, "diagnose", None)
+        if diagnose is None:
+            return {
+                "probable_cause": "undetermined",
+                "summary": "The configured decision engine does not produce a diagnosis.",
+                "confidence": 0,
+                "hypotheses": [],
+                "evidence": observations.get("evidence", []),
+            }
+        return diagnose(observations)
+
+    def decide(self, observations, diagnosis=None):
+        """Choose an action, treating an optional LLM as advisory only."""
         metrics = observations.get("metrics", {})
 
         if (
@@ -105,135 +132,85 @@ class IncidentController:
             return {
                 "action": "escalate",
                 "target": None,
+                "parameters": {},
                 "reason": (
                     "The service is currently healthy. "
                     "No remediation is required."
                 ),
                 "confidence": 1.0,
+                "diagnosis": "no_active_incident",
+                "evidence": [],
                 "source": "deterministic_health_check",
             }
 
-        # -----------------------------------------------------
-        # DETERMINISTIC MODE
-        # -----------------------------------------------------
+        deterministic_decision = self._deterministic_decision(
+            observations,
+            diagnosis,
+        )
 
         if not self.use_llm:
-            decision = self.deterministic_engine.decide(
-                observations
-            )
+            deterministic_decision["source"] = "deterministic"
+            return deterministic_decision
 
-            decision = dict(decision)
-            decision["source"] = "deterministic"
+        llm_decision = self.llm_engine.decide(observations)
 
-            return decision
-
-        # -----------------------------------------------------
-        # GET DETERMINISTIC EVIDENCE
-        # -----------------------------------------------------
-
-        deterministic_decision = (
-            self.deterministic_engine.decide(
-                observations
-            )
-        )
-
-        deterministic_decision = dict(
-            deterministic_decision
-        )
-
-        # -----------------------------------------------------
-        # TRY QWEN
-        # -----------------------------------------------------
-
-        llm_decision = self.llm_engine.decide(
-            observations
-        )
-
-        # -----------------------------------------------------
-        # LLM SUCCESS
-        # -----------------------------------------------------
-
-        if (
-                getattr(
-                    self.llm_engine,
-                    "last_status",
-                    None,
-                )
-                == "success"
-        ):
+        if getattr(self.llm_engine, "last_status", None) == "success":
             llm_decision = dict(llm_decision)
 
-            # -------------------------------------------------
-            # DETERMINISTIC ARBITRATION
-            # -------------------------------------------------
-            #
             # The model remains advisory. When its action conflicts
             # with the deterministic interpretation of the same
-            # simulator evidence, prefer the evidence-backed action.
-            #
-            # Example:
-            #
-            # Attempt 1:
-            #   restart → verification fails
-            #
-            # Attempt 2:
-            #   logs reveal resource exhaustion
-            #   Qwen proposes rollback
-            #   deterministic engine proposes scale
-            #
-            # Final:
-            #   scale_service
-            #
-            # This is intentional.
-            # -------------------------------------------------
-
-            deterministic_action = (
-                deterministic_decision.get(
-                    "action"
-                )
-            )
-
-            llm_action = llm_decision.get(
-                "action"
-            )
+            # observed evidence, prefer the evidence-backed action.
+            deterministic_action = deterministic_decision.get("action")
+            llm_action = llm_decision.get("action")
 
             if deterministic_action != llm_action:
-                deterministic_decision[
-                    "source"
-                ] = "deterministic_arbitration"
-
-                deterministic_decision[
-                    "llm_proposal"
-                ] = llm_decision
-
-                deterministic_decision[
-                    "arbitration_reason"
-                ] = (
+                deterministic_decision["source"] = "deterministic_arbitration"
+                deterministic_decision["llm_proposal"] = llm_decision
+                deterministic_decision["arbitration_reason"] = (
                     "The model proposal conflicted with the action supported "
-                    "by deterministic simulator evidence, so the evidence-backed "
+                    "by deterministic evidence, so the evidence-backed "
                     "action was selected."
                 )
-
+                deterministic_decision["deterministic_validation"] = {
+                    "status": "rejected",
+                    "reason": deterministic_decision["arbitration_reason"],
+                }
                 return deterministic_decision
 
-            # -------------------------------------------------
-            # OTHERWISE ACCEPT THE LLM PROPOSAL
-            # -------------------------------------------------
+            # A proposal that repeats a remediation which already
+            # failed verification in this run is never accepted.
+            failed = find_failed_attempt(
+                llm_action,
+                llm_decision.get("target"),
+                observations.get("attempt_history", []) or [],
+            )
+            if failed is not None and llm_action != "escalate":
+                deterministic_decision["source"] = "deterministic_arbitration"
+                deterministic_decision["llm_proposal"] = llm_decision
+                deterministic_decision["arbitration_reason"] = (
+                    "The model proposed a remediation that already failed "
+                    "verification in this run, so the evidence-backed "
+                    "action was selected."
+                )
+                deterministic_decision["deterministic_validation"] = {
+                    "status": "rejected",
+                    "reason": deterministic_decision["arbitration_reason"],
+                }
+                return deterministic_decision
 
+            llm_decision.setdefault("parameters", {})
+            llm_decision["diagnosis"] = deterministic_decision.get("diagnosis")
+            llm_decision["evidence"] = deterministic_decision.get("evidence", [])
             llm_decision["source"] = "llm"
+            llm_decision["deterministic_validation"] = {
+                "status": "accepted",
+                "reason": "The proposal matched the action supported by deterministic evidence.",
+            }
 
             return llm_decision
 
-        # -----------------------------------------------------
-        # QWEN FAILED → DETERMINISTIC FALLBACK
-        # -----------------------------------------------------
-
         fallback = deterministic_decision
-
-        fallback["source"] = (
-            "deterministic_fallback"
-        )
-
+        fallback["source"] = "deterministic_fallback"
         fallback["fallback_reason"] = getattr(
             self.llm_engine,
             "last_error",
@@ -242,26 +219,67 @@ class IncidentController:
 
         return fallback
 
-    # ---------------------------------------------------------
-    # SAFETY + ACT
-    # ---------------------------------------------------------
+    def _deterministic_decision(self, observations, diagnosis):
+        if diagnosis is not None:
+            try:
+                decision = self.deterministic_engine.decide(observations, diagnosis)
+            except TypeError:
+                decision = self.deterministic_engine.decide(observations)
+        else:
+            decision = self.deterministic_engine.decide(observations)
 
-    def execute(self, decision):
+        decision = dict(decision)
+        decision.setdefault("parameters", {})
+        decision.setdefault("evidence", [])
+        return decision
+
+    @staticmethod
+    def check_safety(decision):
+        """
+        Evaluate a proposed remediation against the deterministic policy.
+
+        Runs for every proposed action, on every attempt, before anything is
+        executed. Escalation mutates nothing, so it needs no check.
+        """
+        action = decision.get("action")
+        target = decision.get("target")
+
+        if action == "escalate":
+            return {
+                "action": "escalate",
+                "checked": False,
+                "allowed": None,
+            }
+
+        if action == "rollback_deployment":
+            allowed = policy.allows("rollback_deployment", version=target)
+        elif action == "scale_service":
+            allowed = policy.allows("scale_service", replicas=target)
+        else:
+            # Restart takes no arguments; anything unknown is denied by the
+            # policy's allow-list.
+            allowed = policy.allows(action)
+
+        return {
+            "action": action,
+            "checked": True,
+            "allowed": bool(allowed),
+        }
+
+    def execute(self, decision, safety_result=None):
         """
         Execute an approved decision.
 
         The LLM never directly executes an action.
 
         Every remediation must pass through the deterministic
-        safety policy before execution.
+        safety policy before execution. A caller that has already run
+        :meth:`check_safety` passes its verdict in, so the policy is
+        evaluated exactly once per action.
         """
 
         action = decision["action"]
         target = decision.get("target")
-
-        # -----------------------------------------------------
-        # ESCALATION
-        # -----------------------------------------------------
 
         if action == "escalate":
             return {
@@ -271,62 +289,24 @@ class IncidentController:
                 "message": decision["reason"],
             }
 
-        # -----------------------------------------------------
-        # SAFETY CHECK
-        # -----------------------------------------------------
+        if safety_result is None:
+            safety_result = self.check_safety(decision)
 
-        if action == "rollback_deployment":
-            allowed = policy.allows(
-                "rollback_deployment",
-                version=target,
-            )
-
-        elif action == "scale_service":
-            allowed = policy.allows(
-                "scale_service",
-                replicas=target,
-            )
-
-        elif action == "restart_service":
-            allowed = policy.allows(
-                "restart_service"
-            )
-
-        else:
-            allowed = False
-
-        # -----------------------------------------------------
-        # BLOCK UNSAFE ACTION
-        # -----------------------------------------------------
-
-        if not allowed:
+        if not safety_result.get("allowed"):
             return {
                 "action": action,
                 "success": False,
                 "status": "blocked",
                 "policy_allowed": False,
-                "message": (
-                    "Action blocked by safety policy."
-                ),
+                "message": "Action blocked by safety policy.",
             }
 
-        # -----------------------------------------------------
-        # EXECUTE APPROVED ACTION
-        # -----------------------------------------------------
-
         if action == "rollback_deployment":
-            result = remediation.rollback_deployment(
-                target
-            )
-
+            result = self.infrastructure.rollback_deployment(target)
         elif action == "scale_service":
-            result = remediation.scale_service(
-                target
-            )
-
+            result = self.infrastructure.scale_service(target)
         elif action == "restart_service":
-            result = remediation.restart_service()
-
+            result = self.infrastructure.restart_service()
         else:
             return {
                 "action": action,
@@ -339,123 +319,136 @@ class IncidentController:
         # The policy approved this action, so record that verdict
         # alongside whatever the executor reported. The two are
         # deliberately separate: an approved action can still fail.
-        return {**result, "policy_allowed": True}
+        result = {**result, "policy_allowed": True}
 
-    # ---------------------------------------------------------
-    # VERIFY
-    # ---------------------------------------------------------
+        # Some backends accept a Deployment patch before their controllers
+        # create and ready replacement Pods. Give asynchronous reconciliation
+        # a bounded chance to settle before the verifier reads fresh telemetry.
+        # Backends with synchronous actions inherit the no-op implementation.
+        if result.get("success"):
+            reconciliation = self.infrastructure.wait_for_reconciliation(result)
+            if reconciliation is not None:
+                result["reconciliation"] = reconciliation
+
+        return result
 
     def verify(self):
         """
-        Verify the current service state using fresh metrics.
+        Verify the current service state using fresh telemetry.
 
         IMPORTANT:
         Successful execution of an action does NOT mean that the
-        incident has been resolved.
+        incident has been resolved. Several independent samples are read
+        after the action, together with the health check, and every one of
+        them must be healthy.
         """
 
-        metrics = diagnostics.get_metrics()
+        samples = []
+        for sample_number in range(self.VERIFICATION_SAMPLES):
+            if sample_number and self.verification_interval_seconds:
+                self._sleep(self.verification_interval_seconds)
+            samples.append(self.infrastructure.get_metrics())
+        health = self.infrastructure.check_health()
+        capacity = self.infrastructure.get_capacity()
 
-        return verifier.verify(metrics)
+        result = verifier.verify_sustained(samples)
 
-    # ---------------------------------------------------------
-    # FULL INCIDENT LOOP
-    # ---------------------------------------------------------
+        if result.recovered and not health.get("is_healthy", False):
+            result = result.with_failed_status(
+                "Health check still reports the service as unhealthy",
+            )
 
-    def run_incident(self, on_event=None):
-        """
-        Run the autonomous incident-response loop.
+        result.metrics_after = {
+            **samples[-1],
+            "replicas": capacity.get("replicas"),
+            "ready_replicas": capacity.get("ready_replicas"),
+        }
+        result.telemetry = {
+            "metrics": samples[-1],
+            "health": health,
+            "capacity": capacity,
+            "samples": len(samples),
+        }
 
-        Observe
-            ↓
-        Decide
-            ↓
-        Safety
-            ↓
-        Act
-            ↓
-        Verify
-            ↓
-        Adapt
-            ↓
-        Observe again
-        """
+        return result
 
+    def run_incident(
+        self,
+        on_event=None,
+        run_id=None,
+        goal=DEFAULT_GOAL,
+        started_at=None,
+    ):
+        """Run the bounded incident-response loop with fresh evidence each attempt."""
+
+        run_id = run_id or f"inc-{uuid4().hex}"
+        started_at = started_at or datetime.now(timezone.utc).isoformat()
         history = []
+        evidence_history = []
+        seen_evidence = set()
+        trace_events = []
 
         status = "unresolved"
+        reason = None
 
         observations = None
         decision = None
         action_result = None
         verification = None
 
-        previous_attempt = None
-
         def emit(phase, **details):
             if on_event is not None:
-                on_event(phase, details)
+                on_event(phase, {
+                    "run_id": run_id,
+                    "goal": goal,
+                    "started_at": started_at,
+                    "status": details.pop("status", "running"),
+                    **details,
+                })
 
-        for attempt_number in range(
-                1,
-                self.MAX_ATTEMPTS + 1,
-        ):
+        for attempt_number in range(1, self.MAX_ATTEMPTS + 1):
+            emit("observing", attempt=attempt_number)
+            observation = self.observe()
+            detection = self.detect(observation)
 
-            # ================================================
-            # OBSERVE
-            # ================================================
-
-            observations = self.investigate()
-            detection = self.detect(observations)
             emit("investigating", attempt=attempt_number, detection=detection)
+            observations = self.investigate(observation)
+            observations["attempt_history"] = [
+                dict(entry) for entry in evidence_history
+            ]
+            if evidence_history:
+                # Kept for consumers of the original single-attempt field.
+                observations["previous_attempt"] = dict(evidence_history[-1])
 
-            # Give the next decision-making step context about
-            # what happened during the previous attempt.
-            if previous_attempt is not None:
-                observations[
-                    "previous_attempt"
-                ] = previous_attempt
+            evidence_ids = [item["id"] for item in observations["evidence"]]
+            new_evidence = [
+                item_id for item_id in evidence_ids if item_id not in seen_evidence
+            ]
 
-            # ================================================
-            # DECIDE
-            # ================================================
+            if history:
+                # What the previous action left behind is exactly what this
+                # re-investigation found.
+                history[-1]["evidence_after_action"] = list(observations["evidence"])
+                history[-1]["new_evidence_after_action"] = list(new_evidence)
+                evidence_history[-1]["evidence_after_action"] = list(evidence_ids)
+                evidence_history[-1]["new_evidence_after_action"] = list(new_evidence)
 
-            decision = self.decide(
-                observations
-            )
-            diagnosis = self.diagnose(observations, decision)
-            emit(
-                "deciding",
-                attempt=attempt_number,
-                diagnosis=diagnosis,
-                decision=decision,
-            )
+            seen_evidence.update(evidence_ids)
 
-            # ================================================
-            # ACT
-            # ================================================
+            emit("diagnosing", attempt=attempt_number)
+            diagnosis = self.diagnose(observations)
 
-            emit("safety_check", attempt=attempt_number, action=decision.get("action"))
-            action_result = self.execute(
-                decision
-            )
-            emit("remediating", attempt=attempt_number, action_result=action_result)
-
-            # ================================================
-            # ESCALATION
-            # ================================================
+            emit("deciding", attempt=attempt_number, diagnosis=self._summary(diagnosis))
+            decision = dict(self.decide(observations, diagnosis))
+            decision.setdefault("parameters", {})
+            decision.setdefault("evidence", [])
 
             if decision["action"] == "escalate":
-
-                safety_result = {
-                    "action": "escalate",
-                    "checked": False,
-                    "allowed": None,
-                }
-
+                safety_result = self.check_safety(decision)
+                action_result = self.execute(decision)
                 verification = None
-
                 status = "escalated"
+                reason = decision["reason"]
 
                 history.append(
                     self._record_attempt(
@@ -467,37 +460,31 @@ class IncidentController:
                         safety_result,
                         action_result,
                         verification,
+                        new_evidence,
                     )
+                )
+                evidence_history.append(
+                    self._summarize_attempt(history[-1])
                 )
 
                 break
-
-            # ================================================
-            # SAFETY RESULT
-            # ================================================
 
             # The verdict comes from the deterministic policy gate itself,
             # not from the action's outcome string - an approved action that
             # then fails to execute must not be reported as "blocked", and a
             # blocked action must never be reported as allowed.
-            safety_result = {
-                "action": decision["action"],
-                "checked": True,
-                "allowed": bool(
-                    action_result.get("policy_allowed")
-                ),
-            }
+            emit("checking_safety", attempt=attempt_number, action=decision.get("action"))
+            safety_result = self.check_safety(decision)
 
-            # ================================================
-            # SAFETY BLOCK
-            # ================================================
+            if safety_result["allowed"]:
+                emit("executing", attempt=attempt_number, action=decision.get("action"))
+
+            action_result = self.execute(decision, safety_result=safety_result)
 
             if not safety_result["allowed"]:
-
                 verification = None
-
                 status = "blocked"
-
+                reason = action_result["message"]
                 history.append(
                     self._record_attempt(
                         attempt_number,
@@ -508,21 +495,20 @@ class IncidentController:
                         safety_result,
                         action_result,
                         verification,
+                        new_evidence,
                     )
+                )
+                evidence_history.append(
+                    self._summarize_attempt(history[-1])
                 )
 
                 break
 
-            # ================================================
-            # VERIFY
-            # ================================================
-
+            emit("verifying", attempt=attempt_number, action_result=action_result)
             verification = self.verify()
-            emit(
-                "verifying",
-                attempt=attempt_number,
-                verification=verification.to_dict(),
-            )
+            # The observation that justified this action is the before state;
+            # verify() already records independently fetched after metrics.
+            verification.metrics_before = dict(observation.get("metrics", {}))
 
             history.append(
                 self._record_attempt(
@@ -534,70 +520,91 @@ class IncidentController:
                     safety_result,
                     action_result,
                     verification,
+                    new_evidence,
                 )
             )
-
-            # ================================================
-            # SUCCESS
-            # ================================================
+            evidence_history.append(
+                self._summarize_attempt(history[-1])
+            )
 
             if verification.recovered:
                 status = "resolved"
                 break
 
-            # ================================================
-            # ADAPT
-            # ================================================
-
-            previous_attempt = {
-                "action": decision.get(
-                    "action"
-                ),
-                "target": decision.get(
-                    "target"
-                ),
-                "action_status": action_result.get(
-                    "status"
-                ),
-                "verification_recovered": (
-                    verification.recovered
-                ),
-                "verification_reason": (
-                    verification.reason
-                ),
-            }
-
             status = "unresolved"
-            emit("adapting", attempt=attempt_number, previous_attempt=previous_attempt)
+            emit(
+                "adapting",
+                attempt=attempt_number,
+                previous_attempt=evidence_history[-1],
+            )
 
-            # The next iteration performs:
-            #
-            # OBSERVE AGAIN
-            #      ↓
-            # NEW EVIDENCE
-            #      ↓
-            # LLM PROPOSAL
-            #      ↓
-            # DETERMINISTIC ARBITRATION
-            #      ↓
-            # SAFETY
-            #      ↓
-            # ACT
-            #      ↓
-            # VERIFY
+            # The next iteration observes again from scratch. It does not
+            # know - and is not told - what to do next.
 
-        # ================================================
-        # FINAL RESULT
-        # ================================================
+        if status == "unresolved" and len(history) >= self.MAX_ATTEMPTS:
+            status = "escalated"
+            reason = MAX_ATTEMPTS_REASON
+            event = TraceEvent(
+                attempt=len(history),
+                phase=TracePhase.ESCALATED,
+                execution={
+                    "status": "escalated",
+                    "reason": reason,
+                    "message": "Maximum automatic remediation attempts reached. Human investigation required.",
+                },
+            ).to_dict()
+            trace_events.append(event)
+            emit(
+                "escalated",
+                status=status,
+                attempt=len(history),
+                reason=reason,
+                history=history,
+            )
+        elif status == "escalated":
+            event = TraceEvent(
+                attempt=len(history),
+                phase=TracePhase.ESCALATED,
+                execution={
+                    "status": "escalated",
+                    "reason": reason,
+                    "message": "Automatic remediation stopped. Human investigation required.",
+                },
+            ).to_dict()
+            trace_events.append(event)
+            emit(
+                "escalated",
+                status=status,
+                attempt=len(history),
+                reason=reason,
+                history=history,
+            )
 
-        emit("complete", status=status, attempts=len(history))
+        emit(
+            "complete",
+            status=status,
+            attempt=len(history),
+            attempts=len(history),
+            reason=reason,
+            history=history,
+        )
         return {
+            "run_id": run_id,
+            "goal": goal,
+            "started_at": started_at,
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "phase": "complete",
+            "attempt": len(history),
+            "history": history,
             "attempts": history,
+            "evidence_history": evidence_history,
+            "trace_events": trace_events,
             "observations": observations,
             "decision": decision,
             "action_result": action_result,
             "verification": verification,
             "status": status,
+            "reason": reason,
         }
 
     @staticmethod
@@ -618,28 +625,11 @@ class IncidentController:
         }
 
     @staticmethod
-    def diagnose(observations, decision):
-        """Summarize evidence without exposing private model reasoning."""
-        action = decision.get("action")
-        if action == "rollback_deployment":
-            cause = "deployment_regression"
-        elif action == "scale_service":
-            cause = "resource_exhaustion"
-        elif action == "restart_service":
-            cause = "transient_service_failure"
-        elif observations.get("metrics", {}).get("status") == "healthy":
-            cause = "no_active_incident"
-        else:
-            cause = "undetermined"
+    def _summary(diagnosis):
         return {
-            "probable_cause": cause,
-            "summary": decision.get("reason", "No diagnosis available."),
-            "confidence": decision.get("confidence", 0),
+            "probable_cause": diagnosis.get("probable_cause"),
+            "confidence": diagnosis.get("confidence"),
         }
-
-    # ---------------------------------------------------------
-    # HISTORY
-    # ---------------------------------------------------------
 
     @staticmethod
     def _record_attempt(
@@ -651,20 +641,55 @@ class IncidentController:
             safety_result,
             action_result,
             verification,
+            new_evidence=None,
     ):
-        """
-        Store a complete audit record for one attempt.
-        """
-
+        """Store the audit record for one attempt."""
         return {
             "attempt": attempt_number,
             "observations": observations,
             "detection": detection,
+            "evidence": observations.get("evidence", []),
+            "new_evidence": list(new_evidence or []),
             "diagnosis": diagnosis,
             "decision": decision,
             "safety_result": safety_result,
             "action_result": action_result,
             "verification": verification,
+            "evidence_after_action": None,
+            "new_evidence_after_action": None,
+        }
+
+    @staticmethod
+    def _summarize_attempt(record):
+        """
+        Compact evidence-history entry for one attempt.
+
+        This is what the next diagnosis sees about earlier attempts: what was
+        believed, what was done, whether the action ran, and whether fresh
+        telemetry confirmed recovery. It carries no instruction about what to
+        try next.
+        """
+        decision = record["decision"]
+        action_result = record["action_result"] or {}
+        verification = record["verification"]
+
+        return {
+            "attempt": record["attempt"],
+            "diagnosis": record["diagnosis"].get("probable_cause"),
+            "action": decision.get("action"),
+            "target": decision.get("target"),
+            "evidence": [item["id"] for item in record["evidence"]],
+            "action_status": action_result.get("status"),
+            "action_success": action_result.get("success"),
+            "policy_allowed": record["safety_result"].get("allowed"),
+            "verification_recovered": (
+                verification.recovered if verification is not None else None
+            ),
+            "verification_reason": (
+                verification.reason if verification is not None else None
+            ),
+            "evidence_after_action": None,
+            "new_evidence_after_action": None,
         }
 
 

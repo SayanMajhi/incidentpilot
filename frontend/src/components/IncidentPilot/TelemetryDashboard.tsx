@@ -35,6 +35,9 @@ export const TelemetryDashboard: React.FC<TelemetryDashboardProps> = ({
   const isErrSpike = hasTelemetry && simState.error_rate > config.elevated.error_rate;
 
   const isLatSpike = hasTelemetry && simState.latency_ms > config.elevated.latency_ms;
+  const cpu = hasTelemetry && typeof simState.cpu_percent === 'number'
+    ? `${simState.cpu_percent.toFixed(0)}%`
+    : EM_DASH;
 
   const version = simState.current_version || EM_DASH;
   const versionDesc = version === config.bad_deployment_version
@@ -94,6 +97,16 @@ export const TelemetryDashboard: React.FC<TelemetryDashboardProps> = ({
           </div>
           <span className="hud-subtext">
             Alert above {config.elevated.latency_ms}ms · SLO {config.recovery.max_latency_ms}ms
+          </span>
+        </div>
+
+        <div className="hud-card">
+          <span className="hud-label">CPU</span>
+          <div className="hud-value" id="valCpu">
+            {cpu}
+          </div>
+          <span className="hud-subtext">
+            {cpu === EM_DASH ? 'Metrics pipeline unavailable' : 'Fresh workload utilization'}
           </span>
         </div>
 

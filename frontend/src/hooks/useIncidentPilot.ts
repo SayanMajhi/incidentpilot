@@ -15,7 +15,7 @@ const POLL_INTERVAL_MS = 2_000;
 const FALLBACK_CONFIG: RuntimeConfig = {
   recovery: { max_error_rate: 0.05, max_latency_ms: 200 },
   elevated: { error_rate: 0.1, latency_ms: 300 },
-  replicas: { min: 1, max: 5 },
+  replicas: { min: 1, max: 3 },
   baseline: { error_rate: 0.01, latency_ms: 100, version: 'v41' },
   chart: { latency_ceiling_ms: 1200 },
   bad_deployment_version: 'v42',
@@ -37,11 +37,12 @@ const PHASE_LABELS: Record<string, string> = {
   failed: 'Run failed',
 };
 
-const emptySummary: IncidentSummary = { scenario: 'None', agentStatus: 'Idle', attempts: '0', finalAction: 'None', finalVerification: 'Pending', finalOutcome: 'None' };
-const emptyDecision: DecisionDetails = { source: 'none', action: 'None', target: 'None', confidence: '0%', reason: 'None' };
+const DEFAULT_GOAL = 'Restore the service to configured SLOs while respecting safety constraints.';
+const emptySummary: IncidentSummary = { scenario: 'None', agentStatus: 'Idle', attempts: '0', finalAction: 'None', finalVerification: 'Pending', finalOutcome: 'None', diagnosis: 'None', evidence: 'None' };
+const emptyDecision: DecisionDetails = { source: 'none', action: 'None', target: 'None', confidence: '0%', reason: 'None', aiSuggestion: 'Not used', validation: 'Deterministic mode', validationReason: 'No model proposal was requested.' };
 const emptySafety: SafetyState = { status: 'UNCHECKED', action: 'None', verdict: 'Pending', reason: 'Awaiting check' };
-const emptyVerification: VerificationState = { status: 'UNVERIFIED', recovered: 'Pending', isRecoveredBool: null, reason: 'Pending', errorRate: '-', latency: '-', serviceStatus: '-' };
-const idleAgent: AgentRunState = { running: false, phase: 'idle', attempt: 0, updated_at: null, details: {} };
+const emptyVerification: VerificationState = { status: 'UNVERIFIED', recovered: 'Pending', isRecoveredBool: null, reason: 'Pending', errorRate: '-', latency: '-', serviceStatus: '-', metricsBefore: '-', metricsAfter: '-' };
+const idleAgent: AgentRunState = { run_id: null, goal: DEFAULT_GOAL, started_at: null, running: false, status: 'idle', phase: 'idle', attempt: 0, max_attempts: 3, history: [], reason: null, updated_at: null, details: {} };
 
 function titleCase(value: string): string {
   return value.replace(/_/g, ' ').replace(/\b\w/g, (letter: string) => letter.toUpperCase());
@@ -61,29 +62,106 @@ function formatTarget(target: string | number | null): string {
   return typeof target === 'number' ? `${target} replicas` : String(target);
 }
 
-function mapAttempt(attempt: BackendAttempt, index: number, total: number): Attempt {
+function formatMetricPercent(value: number | null | undefined): string {
+  return typeof value === 'number' ? `${value.toFixed(0)}%` : 'unavailable';
+}
+
+function actionLabel(action: string, target: string | number | null, currentReplicas: number): string {
+  if (action === 'restart_service') return 'Restart deployment';
+  if (action === 'rollback_deployment') return `Rollback deployment → ${formatTarget(target)}`;
+  if (action === 'scale_service') return `Scale ${currentReplicas} → ${target}`;
+  return titleCase(action);
+}
+
+function mapDecision(decision: BackendAttempt['decision']): DecisionDetails {
+  const proposal = decision.llm_proposal;
+  if (decision.source === 'llm') {
+    return {
+      source: 'Qwen-assisted',
+      action: decision.action,
+      target: formatTarget(decision.target),
+      confidence: `${(decision.confidence * 100).toFixed(0)}%`,
+      reason: decision.reason,
+      aiSuggestion: `${actionLabel(decision.action, decision.target, 1)} (${(decision.confidence * 100).toFixed(0)}%)`,
+      validation: 'ACCEPTED',
+      validationReason: 'The proposal matched the deterministic evidence and passed schema validation.',
+    };
+  }
+  return {
+    source: decision.source || 'deterministic',
+    action: decision.action,
+    target: formatTarget(decision.target),
+    confidence: `${(decision.confidence * 100).toFixed(0)}%`,
+    reason: decision.reason,
+    aiSuggestion: proposal ? `${actionLabel(proposal.action, proposal.target, 1)} (${(proposal.confidence * 100).toFixed(0)}%)` : 'Not used',
+    validation: proposal ? 'REJECTED' : 'Deterministic mode',
+    validationReason: decision.arbitration_reason || decision.fallback_reason || 'No model proposal was requested.',
+  };
+}
+
+function mapAttempt(attempt: BackendAttempt, index: number, total: number, scenario: string): Attempt {
   const { observations, detection, diagnosis, decision, safety_result, action_result, verification } = attempt;
   const metrics = observations.metrics;
+  const capacity = observations.capacity;
+  const after = verification?.metrics_after || verification?.telemetry?.metrics;
+  const afterCapacity = verification?.telemetry?.capacity;
   const signals = detection.signals.length ? detection.signals.map(titleCase).join(', ') : 'No SLO breaches';
+  const evidence = attempt.evidence || observations.evidence || [];
+  const evidenceSummary = evidence.length
+    ? evidence.slice(0, 3).map((item) => item.detail).join(' ')
+    : 'No causal evidence was found.';
+  const selectedAction = actionLabel(decision.action, decision.target, capacity.replicas);
   const steps: Attempt['steps'] = [
-    { type: 'obs', label: 'Observe & Detect', details: `Fresh telemetry: ${metrics.status.toUpperCase()}, ${(metrics.error_rate * 100).toFixed(1)}% errors, ${metrics.latency_ms}ms latency. Signals: ${signals}.` },
-    { type: 'inv', label: 'Investigate', details: `Queried ${observations.logs.length} diagnostic log entries, deployment history, service health, and current version ${observations.current_version}.` },
+    { type: 'obs', label: 'OBSERVE · SLO breach detected', details: `CPU ${formatMetricPercent(metrics.cpu_percent)} · Error rate ${(metrics.error_rate * 100).toFixed(1)}% · Latency ${metrics.latency_ms}ms · Replicas ${capacity.replicas}${capacity.ready_replicas != null ? ` (${capacity.ready_replicas} ready)` : ''}. Signals: ${signals}.` },
+    { type: 'inv', label: 'INVESTIGATE · Evidence collected', details: `${evidenceSummary} Queried ${observations.logs.length} logs, current workload state, and deployment history.` },
     { type: 'diag', label: 'Diagnose', details: `${titleCase(diagnosis.probable_cause)} — ${diagnosis.summary}` },
-    { type: 'dec', label: 'Decide', details: `Selected ${decision.action}${decision.target != null ? ` → ${formatTarget(decision.target)}` : ''} at ${(decision.confidence * 100).toFixed(0)}% confidence (${decision.source || 'deterministic'}).` },
-    { type: 'safe', label: 'Safety Check', details: safety_result.checked ? `Policy ${safety_result.allowed ? 'allowed' : 'blocked'} ${safety_result.action}.` : 'No remediation was proposed; a policy check was not required.', customClass: safety_result.allowed === false ? 'verification-failure' : undefined },
-    { type: 'act', label: action_result.action === 'escalate' ? 'Escalate' : 'Remediate', details: action_result.message, customClass: action_result.success ? undefined : 'verification-failure' },
+    { type: 'dec', label: 'DECIDE', details: `${selectedAction} · ${(decision.confidence * 100).toFixed(0)}% confidence · ${decision.source || 'deterministic'}. ${decision.reason}` },
+    { type: 'safe', label: `SAFETY · ${safety_result.checked ? (safety_result.allowed ? 'APPROVED' : 'BLOCKED') : 'NOT REQUIRED'}`, details: safety_result.checked ? `Deterministic policy checked ${decision.action}; allowed range is 1–3 replicas and only bounded remediations are permitted.` : 'No remediation was proposed, so no mutation was authorized.', customClass: safety_result.allowed === false ? 'verification-failure' : 'safety-approved' },
+    { type: 'act', label: action_result.action === 'escalate' ? 'ESCALATED' : 'ACTION', details: `${action_result.success ? '✓ Command succeeded.' : '✗ Command failed.'} ${action_result.message}`, customClass: action_result.success ? 'execution-success' : 'verification-failure' },
   ];
   if (verification) {
-    steps.push({ type: 'ver', label: 'Verify Recovery', details: `${verification.reason}. Fresh telemetry confirms recovered=${verification.recovered ? 'true' : 'false'}.`, customClass: verification.recovered ? 'verification-success' : 'verification-failure' });
+    steps.push({ type: 'ver', label: 'VERIFY · Fresh telemetry', details: `CPU ${formatMetricPercent(after?.cpu_percent)} · Error rate ${after ? `${(after.error_rate * 100).toFixed(1)}%` : 'unavailable'} · Latency ${after ? `${after.latency_ms}ms` : 'unavailable'} · Replicas ${afterCapacity?.replicas ?? after?.replicas ?? capacity.replicas}${afterCapacity?.ready_replicas != null ? `/${afterCapacity.replicas} ready` : ''}.` });
+    steps.push({ type: 'result', label: `RESULT · ${verification.recovered ? 'PASSED' : 'FAILED'}`, details: verification.recovered ? `✓ ${verification.reason}. Incident recovery is verified.` : `✗ ${verification.reason}. The command succeeded, but the SLO is still violated.`, customClass: verification.recovered ? 'verification-success' : 'verification-failure' });
     if (!verification.recovered && index < total - 1) {
-      steps.push({ type: 'adapt', label: 'Adapt & Re-investigate', details: 'Verification rejected the remediation outcome. The controller retained the failure evidence and began a fresh attempt.', customClass: 'adapt-callout' });
+      const freshEvidence = attempt.new_evidence_after_action?.map(titleCase).join(', ') || 'new post-action evidence';
+      steps.push({ type: 'adapt', label: 'ADAPT · Re-investigate', details: `Verification rejected false success. The controller fetched fresh state and discovered ${freshEvidence}; the next action must follow that evidence.`, customClass: 'adapt-callout' });
     }
   }
   const succeeded = verification?.recovered === true;
+  const statusText = succeeded ? 'RECOVERED' : verification ? 'VERIFICATION FAILED' : action_result.status.toUpperCase();
+  const mappedDecision = mapDecision(decision);
+  const mappedVerification: VerificationState = verification ? {
+    status: verification.recovered ? 'VERIFIED' : 'FAILED',
+    recovered: verification.recovered ? 'YES' : 'NO',
+    isRecoveredBool: verification.recovered,
+    reason: verification.reason,
+    errorRate: after ? `${(after.error_rate * 100).toFixed(1)}%` : 'unavailable',
+    latency: after ? `${after.latency_ms}ms` : 'unavailable',
+    serviceStatus: after?.status?.toUpperCase() || 'UNKNOWN',
+    metricsBefore: verification.metrics_before ? `${(verification.metrics_before.error_rate * 100).toFixed(1)}% errors · ${verification.metrics_before.latency_ms}ms · ${verification.metrics_before.status}` : 'unavailable',
+    metricsAfter: after ? `${(after.error_rate * 100).toFixed(1)}% errors · ${after.latency_ms}ms · ${after.status}` : 'unavailable',
+  } : { ...emptyVerification, status: 'NOT RUN', reason: action_result.message };
+  const mappedSafety: SafetyState = {
+    status: safety_result.checked ? (safety_result.allowed ? 'ALLOWED' : 'BLOCKED') : 'NOT REQUIRED',
+    action: safety_result.action,
+    verdict: safety_result.checked ? (safety_result.allowed ? 'ALLOWED' : 'BLOCKED') : 'SKIPPED',
+    reason: action_result.message,
+  };
   return {
     id: `attempt-${attempt.attempt}`, number: attempt.attempt, tag: `ATTEMPT ${attempt.attempt}`,
-    statusText: succeeded ? 'RECOVERED' : verification ? 'VERIFICATION FAILED' : action_result.status.toUpperCase(),
-    statusClass: succeeded ? 'success' : 'retry', steps,
+    statusText, statusClass: succeeded ? 'success' : 'retry', steps,
+    inspector: {
+      summary: {
+        scenario: scenarioLabel(scenario), agentStatus: statusText, attempts: `${attempt.attempt} of ${total}`,
+        finalAction: decision.action, finalVerification: verification ? (succeeded ? 'Recovered' : 'Failed') : 'Not run',
+        finalOutcome: statusText, diagnosis: `${titleCase(diagnosis.probable_cause)} — ${diagnosis.summary}`,
+        evidence: evidence.length ? evidence.map((item) => `${item.id}: ${item.detail}`).join(' ') : 'No causal evidence was found.',
+      },
+      decision: mappedDecision,
+      safety: mappedSafety,
+      verification: mappedVerification,
+      logs: mapLogs(observations.logs),
+    },
   };
 }
 
@@ -134,7 +212,6 @@ export function useIncidentPilot(initialBaseUrl = api.DEFAULT_BASE_URL) {
 
   const applyIncident = useCallback((
     timeline: TimelineResponse,
-    service: ServiceState,
     scenario: string,
     agentState: AgentRunState,
   ) => {
@@ -155,6 +232,8 @@ export function useIncidentPilot(initialBaseUrl = api.DEFAULT_BASE_URL) {
     const status = timeline.status as IncidentStatus;
     const recovered = status === 'resolved';
     const finalVerification = finalAttempt.verification;
+    const mappedAttempts = backendAttempts.map((attempt, index) => mapAttempt(attempt, index, backendAttempts.length, scenario));
+    const finalInspector = mappedAttempts[mappedAttempts.length - 1].inspector;
 
     setSummary({
       scenario: label,
@@ -165,37 +244,17 @@ export function useIncidentPilot(initialBaseUrl = api.DEFAULT_BASE_URL) {
       finalAction: finalAttempt.decision.action,
       finalVerification: finalVerification ? (finalVerification.recovered ? 'Recovered' : 'Failed') : 'Not run',
       finalOutcome: agentState.running ? 'Running' : status.toUpperCase(),
+      diagnosis: finalInspector.summary.diagnosis,
+      evidence: finalInspector.summary.evidence,
     });
 
-    setDecision({
-      source: finalAttempt.decision.source || 'deterministic',
-      action: finalAttempt.decision.action,
-      target: formatTarget(finalAttempt.decision.target),
-      confidence: `${(finalAttempt.decision.confidence * 100).toFixed(0)}%`,
-      reason: finalAttempt.decision.reason,
-    });
-
-    setSafety({
-      status: finalAttempt.safety_result.checked ? (finalAttempt.safety_result.allowed ? 'ALLOWED' : 'BLOCKED') : 'NOT REQUIRED',
-      action: finalAttempt.safety_result.action,
-      verdict: finalAttempt.safety_result.checked ? (finalAttempt.safety_result.allowed ? 'ALLOWED' : 'BLOCKED') : 'SKIPPED',
-      reason: finalAttempt.action_result.message,
-    });
-
-    setVerification(finalVerification ? {
-      status: finalVerification.recovered ? 'VERIFIED' : 'FAILED',
-      recovered: finalVerification.recovered ? 'YES' : 'NO',
-      isRecoveredBool: finalVerification.recovered,
-      reason: finalVerification.reason,
-      errorRate: `${(service.error_rate * 100).toFixed(1)}%`,
-      latency: `${service.latency_ms}ms`,
-      serviceStatus: service.status.toUpperCase(),
-    } : { ...emptyVerification, status: 'NOT RUN', reason: finalAttempt.action_result.message });
-
-    setAttempts(backendAttempts.map((attempt, index) => mapAttempt(attempt, index, backendAttempts.length)));
+    setDecision(finalInspector.decision);
+    setSafety(finalInspector.safety);
+    setVerification(finalInspector.verification);
+    setAttempts(mappedAttempts);
     setResolutionBanner({
       visible: !agentState.running,
-      text: recovered ? 'INCIDENT RECOVERED — VERIFIED AGAINST LIVE TELEMETRY' : `INCIDENT ${status.toUpperCase()}`,
+      text: recovered ? 'INCIDENT RECOVERED — VERIFIED AGAINST LIVE TELEMETRY' : status === 'escalated' ? `INCIDENT ESCALATED — ${timeline.reason || 'Human investigation required'}` : `INCIDENT ${status.toUpperCase()}`,
       isResolved: recovered,
     });
   }, []);
@@ -220,7 +279,7 @@ export function useIncidentPilot(initialBaseUrl = api.DEFAULT_BASE_URL) {
       setAgent(status.agent);
       setLogs(mapLogs(status.diagnostics.logs));
       setLastSyncTime(`Live API · ${new Date().toLocaleTimeString()}`);
-      applyIncident(timeline, status.service, status.scenario, status.agent);
+      applyIncident(timeline, status.scenario, status.agent);
       setOperationError(null);
       return status;
     } catch (error) {

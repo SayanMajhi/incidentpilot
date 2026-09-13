@@ -13,6 +13,7 @@ import { Footer } from './Footer';
 import { LifecycleStrip } from './LifecycleStrip';
 import { CommandBar } from './CommandBar';
 import { IncidentFocus } from './IncidentFocus';
+import { RunContext } from './RunContext';
 
 interface IncidentPilotDashboardProps {
   initialBaseUrl?: string;
@@ -21,7 +22,7 @@ interface IncidentPilotDashboardProps {
 export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
   initialBaseUrl,
 }) => {
-  const [selectedAttemptNumber, setSelectedAttemptNumber] = useState<number | null>(null);
+  const [selectedNumber, setSelectedNumber] = useState<number | null>(null);
   const {
     backendUrl,
     setBackendUrl,
@@ -48,22 +49,22 @@ export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
     maxSamples,
     logs,
     operationError,
+    agent,
   } = useIncidentPilot(initialBaseUrl);
 
   const isOffline = connectionStatus !== 'connected';
 
   // Drop a stale selection when a new run replaces the attempt list, so an
   // attempt selected in a previous run cannot stay highlighted in this one.
-  const attemptCount = attempts.length;
-  useEffect(() => { setSelectedAttemptNumber(null); }, [attemptCount]);
+  useEffect(() => { setSelectedNumber(null); }, [agent.run_id]);
 
-  const selectedAttempt = selectedAttemptNumber === null
+  const selectedAttempt = selectedNumber === null
     ? attempts[attempts.length - 1]
-    : attempts.find((attempt) => attempt.number === selectedAttemptNumber) ?? attempts[attempts.length - 1];
+    : attempts.find((attempt) => attempt.number === selectedNumber) ?? attempts[attempts.length - 1];
+  const inspector = selectedAttempt?.inspector;
 
   return (
     <div className="incidentpilot-root">
-      {/* Top Navigation and Bridge Header */}
       <Header
         backendUrl={backendUrl}
         onUrlChange={setBackendUrl}
@@ -71,7 +72,6 @@ export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
         onPing={() => void checkConnection()}
       />
 
-      {/* Offline Guidance Banner */}
       <BackendAlert
         backendUrl={backendUrl}
         isOffline={isOffline}
@@ -93,6 +93,8 @@ export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
           service={simState}
         />
 
+        <RunContext agent={agent} phase={agentPhase} />
+
         <IncidentFocus
           service={simState}
           summary={summary}
@@ -100,7 +102,6 @@ export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
           verification={verification}
         />
 
-        {/* Live Service State HUD */}
         <TelemetryDashboard
           simState={simState}
           currentReplicas={currentReplicas}
@@ -116,7 +117,6 @@ export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
           isRunning={isRunningAgent}
         />
 
-        {/* Operational Controls and Scenario Selection */}
         <ScenarioSelector
           onSelectScenario={triggerScenario}
           onReset={resetSystem}
@@ -127,19 +127,16 @@ export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
           activeScenario={activeScenario}
         />
 
-        {/* Axiom Banner: Action Success != Recovery */}
         <CorePrincipleBanner />
 
-        {/* Main Workspace Split: Agent Timeline and Inspector Cards */}
         <div className="content-split">
-          {/* Left Column: Centerpiece Timeline and Real Time Telemetry Spike Monitor */}
           <div className="timeline-column">
             <AgentExecutionTimeline
               attempts={attempts}
               resolutionBanner={resolutionBanner}
               summaryAgentStatus={summary.agentStatus}
               selectedAttemptNumber={selectedAttempt?.number ?? null}
-              onSelectAttempt={(attempt) => setSelectedAttemptNumber(attempt.number)}
+              onSelectAttempt={(attempt) => setSelectedNumber(attempt.number)}
               isRunning={isRunningAgent}
             />
 
@@ -150,19 +147,17 @@ export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
             />
           </div>
 
-          {/* Right Column: Dedicated Deep-Dive Cards and Logs */}
           <InspectorTabs
-            summary={summary}
-            decision={decision}
-            safety={safety}
-            verification={verification}
-            logs={logs}
+            summary={inspector?.summary ?? summary}
+            decision={inspector?.decision ?? decision}
+            safety={inspector?.safety ?? safety}
+            verification={inspector?.verification ?? verification}
+            logs={inspector?.logs ?? logs}
             selectedAttemptLabel={selectedAttempt ? `Attempt ${selectedAttempt.number} selected` : 'Latest incident state'}
           />
         </div>
       </main>
 
-      {/* Footer */}
       <Footer />
     </div>
   );

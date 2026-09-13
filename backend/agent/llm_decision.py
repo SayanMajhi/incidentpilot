@@ -23,10 +23,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-# =========================================================
-# CONFIGURATION
-# =========================================================
-
 ALLOWED_ACTIONS = (
     "restart_service",
     "rollback_deployment",
@@ -37,10 +33,6 @@ ALLOWED_ACTIONS = (
 _DEFAULT_MAX_TOKENS = 512
 _DEFAULT_TEMPERATURE = 0
 
-
-# =========================================================
-# SYSTEM PROMPT
-# =========================================================
 
 SYSTEM_PROMPT = """You are IncidentPilot, an SRE incident diagnosis agent.
 
@@ -91,10 +83,6 @@ Do not include explanations before or after the JSON.
 """
 
 
-# =========================================================
-# JSON SCHEMA
-# =========================================================
-
 DECISION_JSON_SCHEMA: Dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -134,10 +122,6 @@ _RESPONSE_FORMAT = {
 }
 
 
-# =========================================================
-# LLM ENGINE
-# =========================================================
-
 class LLMDecisionEngine:
 
     def __init__(
@@ -171,10 +155,6 @@ class LLMDecisionEngine:
         self.last_status = "not_called"
         self.last_error = None
 
-    # =====================================================
-    # CLIENT
-    # =====================================================
-
     def _get_client(self) -> Any:
 
         if self._client is not None:
@@ -200,10 +180,6 @@ class LLMDecisionEngine:
 
         return self._client
 
-    # =====================================================
-    # MAIN DECISION METHOD
-    # =====================================================
-
     def decide(
             self,
             observations: Dict[str, Any],
@@ -211,10 +187,6 @@ class LLMDecisionEngine:
 
         self.last_status = "failed"
         self.last_error = None
-
-        # -------------------------------------------------
-        # Check configuration
-        # -------------------------------------------------
 
         if not self.api_key:
             self.last_status = "missing_token"
@@ -241,10 +213,6 @@ class LLMDecisionEngine:
         try:
 
             client = self._get_client()
-
-            # -------------------------------------------------
-            # Serialize observations
-            # -------------------------------------------------
 
             observation_json = json.dumps(
                 observations,
@@ -278,10 +246,6 @@ class LLMDecisionEngine:
                 "temperature": self.temperature,
             }
 
-            # -------------------------------------------------
-            # Try structured output first
-            # -------------------------------------------------
-
             try:
 
                 response = (
@@ -303,10 +267,6 @@ class LLMDecisionEngine:
                     )
                 )
 
-            # -------------------------------------------------
-            # Extract response content
-            # -------------------------------------------------
-
             content = self._extract_content(
                 response
             )
@@ -316,17 +276,9 @@ class LLMDecisionEngine:
                     "LLM returned empty content"
                 )
 
-            # -------------------------------------------------
-            # Robust JSON extraction
-            # -------------------------------------------------
-
             raw_decision = self._parse_json(
                 content
             )
-
-            # -------------------------------------------------
-            # Validate decision
-            # -------------------------------------------------
 
             validated = self._validate_decision(
                 raw_decision
@@ -336,10 +288,6 @@ class LLMDecisionEngine:
                 raise ValueError(
                     "LLM returned an invalid decision"
                 )
-
-            # -------------------------------------------------
-            # SUCCESS
-            # -------------------------------------------------
 
             self.last_status = "success"
             self.last_error = None
@@ -355,10 +303,6 @@ class LLMDecisionEngine:
                 "LLM decision failed safely; "
                 "deterministic fallback is required."
             )
-
-    # =====================================================
-    # RESPONSE CONTENT EXTRACTION
-    # =====================================================
 
     @staticmethod
     def _extract_content(
@@ -407,10 +351,6 @@ class LLMDecisionEngine:
 
         return str(content).strip()
 
-    # =====================================================
-    # ROBUST JSON PARSER
-    # =====================================================
-
     @staticmethod
     def _parse_json(
             content: str,
@@ -433,20 +373,13 @@ class LLMDecisionEngine:
 
         text = content.strip()
 
-        # -------------------------------------------------
         # Remove Qwen reasoning blocks if present.
-        # -------------------------------------------------
-
         text = re.sub(
             r"<think>.*?</think>",
             "",
             text,
             flags=re.DOTALL | re.IGNORECASE,
         ).strip()
-
-        # -------------------------------------------------
-        # Remove markdown code fences.
-        # -------------------------------------------------
 
         if text.startswith("```"):
 
@@ -465,10 +398,6 @@ class LLMDecisionEngine:
 
             text = text.strip()
 
-        # -------------------------------------------------
-        # Direct JSON parse.
-        # -------------------------------------------------
-
         try:
 
             parsed = json.loads(text)
@@ -483,13 +412,9 @@ class LLMDecisionEngine:
         except json.JSONDecodeError:
             pass
 
-        # -------------------------------------------------
         # Search for the first JSON object.
-        #
         # JSONDecoder.raw_decode allows us to ignore
         # harmless text before/after the object.
-        # -------------------------------------------------
-
         decoder = json.JSONDecoder()
 
         for match in re.finditer(
@@ -511,17 +436,9 @@ class LLMDecisionEngine:
             except json.JSONDecodeError:
                 continue
 
-        # -------------------------------------------------
-        # Nothing valid was found.
-        # -------------------------------------------------
-
         raise ValueError(
             "LLM response did not contain valid JSON"
         )
-
-    # =====================================================
-    # VALIDATION
-    # =====================================================
 
     @staticmethod
     def _validate_decision(
@@ -530,10 +447,6 @@ class LLMDecisionEngine:
 
         if not isinstance(raw, dict):
             return None
-
-        # -------------------------------------------------
-        # Required fields
-        # -------------------------------------------------
 
         required_fields = {
             "action",
@@ -550,26 +463,14 @@ class LLMDecisionEngine:
         reason = raw.get("reason")
         confidence = raw.get("confidence")
 
-        # -------------------------------------------------
-        # Action
-        # -------------------------------------------------
-
         if action not in ALLOWED_ACTIONS:
             return None
-
-        # -------------------------------------------------
-        # Reason
-        # -------------------------------------------------
 
         if (
                 not isinstance(reason, str)
                 or not reason.strip()
         ):
             return None
-
-        # -------------------------------------------------
-        # Confidence
-        # -------------------------------------------------
 
         if (
                 isinstance(confidence, bool)
@@ -582,10 +483,6 @@ class LLMDecisionEngine:
 
         if not 0 <= confidence <= 1:
             return None
-
-        # -------------------------------------------------
-        # Action-specific target validation
-        # -------------------------------------------------
 
         if action == "rollback_deployment":
 
@@ -629,20 +526,12 @@ class LLMDecisionEngine:
             if target is not None:
                 return None
 
-        # -------------------------------------------------
-        # Normalized validated decision
-        # -------------------------------------------------
-
         return {
             "action": action,
             "target": target,
             "reason": reason.strip(),
             "confidence": float(confidence),
         }
-
-    # =====================================================
-    # SAFE ESCALATION
-    # =====================================================
 
     @staticmethod
     def _escalation(
@@ -656,9 +545,5 @@ class LLMDecisionEngine:
             "confidence": 0.0,
         }
 
-
-# =========================================================
-# SINGLETON
-# =========================================================
 
 llm_decision_engine = LLMDecisionEngine()

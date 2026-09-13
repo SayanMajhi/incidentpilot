@@ -1,0 +1,67 @@
+# Demo workload IncidentPilot observes and remediates in Kubernetes mode.
+#
+#   kubectl apply -f deploy/kubernetes/demo-workload.yaml
+#
+# Re-applying this file also resets the workload to its baseline: version v41,
+# one replica.
+#
+# Requirements the adapter relies on:
+#   * Deployment name is in K8S_ALLOWED_DEPLOYMENTS (default incidentpilot-demo)
+#   * Deployment carries incidentpilot.io/managed=true, or it will not be modified
+#   * pod template carries app.kubernetes.io/version, used as the version
+#   * Service exposes a port named "http", used for health probes
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: incidentpilot-demo
+  namespace: incidentpilot
+  labels:
+    app.kubernetes.io/name: incidentpilot-demo
+    incidentpilot.io/managed: "true"
+spec:
+  replicas: 1
+  revisionHistoryLimit: 10
+  # Surface a stalled rollout quickly instead of after the 10 minute default.
+  progressDeadlineSeconds: 60
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: incidentpilot-demo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: incidentpilot-demo
+        app.kubernetes.io/version: v41
+    spec:
+      containers:
+        - name: app
+          image: nginx:1.27-alpine
+          ports:
+            - name: http
+              containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: incidentpilot-demo
+  namespace: incidentpilot
+  labels:
+    app.kubernetes.io/name: incidentpilot-demo
+spec:
+  selector:
+    app.kubernetes.io/name: incidentpilot-demo
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
