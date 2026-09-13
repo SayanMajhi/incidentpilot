@@ -363,9 +363,10 @@ def test_response_format_type_error_falls_back_and_still_succeeds():
     assert call_count["n"] == 2
 
 
-def test_missing_model_escalates():
+def test_missing_model_escalates(monkeypatch):
     """No injected client and no HF_MODEL configured should fail safely
     when a real client is built, rather than raising out of decide()."""
+    monkeypatch.delenv("HF_MODEL", raising=False)
     engine = LLMDecisionEngine(client=None, model=None, api_key="fake-token")
     decision = engine.decide(OBSERVATIONS)
     assert_safe_escalation(decision, engine, expected_last_status="missing_model")

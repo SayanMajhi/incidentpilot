@@ -2,6 +2,8 @@
 
 IncidentPilot is a local, autonomous SRE incident-response prototype. It watches a deterministic production-service simulator, detects SLO violations, gathers real simulator evidence, diagnoses a likely cause, selects a bounded remediation, applies a deterministic safety policy, executes the action, and verifies recovery from fresh telemetry. If an action completes but the service remains unhealthy, the controller re-investigates and adapts instead of reporting a false recovery.
 
+Every run has a unique ID, an explicit recovery goal, live phase, bounded attempt history, and a final resolved, blocked, or escalated outcome. For the exact judging walkthrough, use [DEMO.md](DEMO.md).
+
 The project is deliberately self-contained: **there is no database, queue, cache, or external infrastructure requirement**. Service, incident, replica, and execution state live in memory and reset when the backend process exits.
 
 ## Architecture
@@ -29,7 +31,7 @@ IncidentController
                                          |
                          fresh telemetry verification
                                          |
-                    recovered OR adapt/re-investigate
+                    recover OR adapt OR escalate to a human
 ```
 
 ### Execution environments
@@ -63,7 +65,7 @@ deploy/kubernetes/ kind cluster, namespace, demo workload and optional RBAC mani
 docs/            Kubernetes mode setup and safety
 frontend/        React 19 + TypeScript + Vite dashboard and landing experience
 tests/           unit, integration and controller-loop coverage
-scripts/         optional model connectivity check
+scripts/         model checks and repeatable Kubernetes demo commands
 ```
 
 ### One source of truth for thresholds
@@ -88,6 +90,7 @@ Each bounded run executes up to three attempts:
 5. **Remediate** — invoke the simulator-backed remediation tool.
 6. **Verify** — collect fresh metrics; action success never implies recovery.
 7. **Adapt or recover** — retain failed-attempt evidence, re-observe, and choose a different action when supported.
+8. **Escalate** — after three failed verification attempts, stop automatic changes and record a human-handoff reason.
 
 The optional Hugging Face/Qwen engine may propose a decision. It never executes tools directly. A deterministic evidence layer arbitrates conflicts, and the deterministic policy gate remains authoritative. With no model credentials, IncidentPilot runs fully in deterministic mode.
 
@@ -165,6 +168,7 @@ Copy `.env.example` to `.env` only if you want file-based configuration; every v
 | `LLM_ENABLED` | `false` | Enable optional HF/Qwen proposals. Deterministic fallback remains available. |
 | `HF_TOKEN` | unset | Hugging Face access token, used only when LLM mode is enabled. |
 | `HF_MODEL` | unset | Hugging Face model identifier, used only when LLM mode is enabled. |
+| `VERIFICATION_INTERVAL_SECONDS` | `1` | Delay between independent post-action telemetry samples; tests set this to `0`. |
 | `CORS_ORIGINS` | localhost and 127.0.0.1 on port 3000 | Comma-separated browser origins allowed by FastAPI. |
 | `VITE_API_BASE_URL` | `http://127.0.0.1:8000` | Frontend API target. Set in `frontend/.env.local`, or override live in the dashboard's API Target field. |
 
@@ -214,6 +218,6 @@ Optionally, `scripts/check_qwen_connection.py` verifies Hugging Face connectivit
 - The adaptive scenario intentionally fails verification after restart and recovers by scaling after fresh evidence appears.
 - Unknown or insufficient evidence escalates rather than inventing a remediation.
 - Unsafe or unsupported actions are blocked before remediation. The policy gate and the remediation executor share one set of bounds, so the gate can never approve an action the executor would reject.
-- The environment is deterministic and single-process. It is a safe simulator, not a connector to Kubernetes or a production control plane.
+- Simulator state is deterministic and single-process. Kubernetes mode uses a real local cluster through the restricted Kubernetes adapter; it is not intended for a production control plane.
 - State is process-local and is not durable across backend restarts. There is explicitly **no database**.
 - Optional hosted-model latency and availability depend on the configured Hugging Face service; deterministic mode is recommended for repeatable local demos.

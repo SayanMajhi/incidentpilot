@@ -9,6 +9,8 @@ from backend.models import (
     EvidenceItem,
     EvidenceSeverity,
     InvestigationResult,
+    IncidentRunState,
+    IncidentRunStatus,
     ProposedAction,
     RemediationActionType,
     TraceEvent,
@@ -141,3 +143,21 @@ def test_trace_event_serializes_nested_models_for_api_consumers():
     assert payload["phase"] == "deciding"
     assert payload["decision"]["action_type"] == "restart"
     assert payload["evidence"][0]["severity"] == "warning"
+
+
+def test_incident_run_state_serializes_for_status_apis():
+    state = IncidentRunState(
+        run_id="inc-a82f",
+        goal="Restore the service safely.",
+        started_at="2026-09-13T08:30:00Z",
+        status=IncidentRunStatus.ESCALATED,
+        phase=TracePhase.ESCALATED,
+        attempt=3,
+        history=[{"attempt": 1, "action": "restart_service"}],
+        reason="Maximum remediation attempts exhausted",
+    )
+
+    payload = state.to_dict()
+    assert payload["status"] == "escalated"
+    assert payload["phase"] == "escalated"
+    assert payload["history"][0]["action"] == "restart_service"

@@ -1,11 +1,14 @@
 import itertools
 import os
+import time
 from datetime import datetime, timezone
+from uuid import uuid4
 
 from backend.agent.decision import collect_evidence, decision_engine, find_failed_attempt
 from backend.agent.llm_decision import llm_decision_engine
 from backend.safety.policy import policy
 from backend.infrastructure import get_infrastructure
+from backend.models import TraceEvent, TracePhase
 from backend.verification.verifier import verifier
 
 
@@ -14,6 +17,8 @@ MAX_ATTEMPTS = 3
 # Independent fresh telemetry samples taken after every action. Recovery is
 # only confirmed when every one of them is healthy.
 VERIFICATION_SAMPLES = 3
+DEFAULT_GOAL = "Restore the service to configured SLOs while respecting safety constraints."
+MAX_ATTEMPTS_REASON = "Maximum remediation attempts exhausted"
 
 
 class IncidentController:
@@ -26,6 +31,8 @@ class IncidentController:
             llm_engine=None,
             deterministic_engine=None,
         infrastructure=None,
+        verification_interval_seconds=None,
+        sleep_func=None,
     ):
         if use_llm is None:
             use_llm = os.getenv("LLM_ENABLED", "false").lower() == "true"
@@ -41,6 +48,15 @@ class IncidentController:
         # chosen by configuration. The controller never knows which one it is.
         self._infrastructure = infrastructure
         self._observation_ids = itertools.count(1)
+        if verification_interval_seconds is None:
+            verification_interval_seconds = os.getenv(
+                "VERIFICATION_INTERVAL_SECONDS",
+                "1",
+            )
+        self.verification_interval_seconds = float(verification_interval_seconds)
+        if self.verification_interval_seconds < 0:
+            raise ValueError("VERIFICATION_INTERVAL_SECONDS cannot be negative")
+        self._sleep = sleep_func or time.sleep
 
     @property
     def infrastructure(self):
@@ -155,6 +171,10 @@ class IncidentController:
                     "by deterministic evidence, so the evidence-backed "
                     "action was selected."
                 )
+                deterministic_decision["deterministic_validation"] = {
+                    "status": "rejected",
+                    "reason": deterministic_decision["arbitration_reason"],
+                }
                 return deterministic_decision
 
             # A proposal that repeats a remediation which already
@@ -172,12 +192,20 @@ class IncidentController:
                     "verification in this run, so the evidence-backed "
                     "action was selected."
                 )
+                deterministic_decision["deterministic_validation"] = {
+                    "status": "rejected",
+                    "reason": deterministic_decision["arbitration_reason"],
+                }
                 return deterministic_decision
 
             llm_decision.setdefault("parameters", {})
             llm_decision["diagnosis"] = deterministic_decision.get("diagnosis")
             llm_decision["evidence"] = deterministic_decision.get("evidence", [])
             llm_decision["source"] = "llm"
+            llm_decision["deterministic_validation"] = {
+                "status": "accepted",
+                "reason": "The proposal matched the action supported by deterministic evidence.",
+            }
 
             return llm_decision
 
@@ -315,10 +343,11 @@ class IncidentController:
         them must be healthy.
         """
 
-        samples = [
-            self.infrastructure.get_metrics()
-            for _ in range(self.VERIFICATION_SAMPLES)
-        ]
+        samples = []
+        for sample_number in range(self.VERIFICATION_SAMPLES):
+            if sample_number and self.verification_interval_seconds:
+                self._sleep(self.verification_interval_seconds)
+            samples.append(self.infrastructure.get_metrics())
         health = self.infrastructure.check_health()
         capacity = self.infrastructure.get_capacity()
 
@@ -343,14 +372,24 @@ class IncidentController:
 
         return result
 
-    def run_incident(self, on_event=None):
+    def run_incident(
+        self,
+        on_event=None,
+        run_id=None,
+        goal=DEFAULT_GOAL,
+        started_at=None,
+    ):
         """Run the bounded incident-response loop with fresh evidence each attempt."""
 
+        run_id = run_id or f"inc-{uuid4().hex}"
+        started_at = started_at or datetime.now(timezone.utc).isoformat()
         history = []
         evidence_history = []
         seen_evidence = set()
+        trace_events = []
 
         status = "unresolved"
+        reason = None
 
         observations = None
         decision = None
@@ -359,7 +398,13 @@ class IncidentController:
 
         def emit(phase, **details):
             if on_event is not None:
-                on_event(phase, details)
+                on_event(phase, {
+                    "run_id": run_id,
+                    "goal": goal,
+                    "started_at": started_at,
+                    "status": details.pop("status", "running"),
+                    **details,
+                })
 
         for attempt_number in range(1, self.MAX_ATTEMPTS + 1):
             emit("observing", attempt=attempt_number)
@@ -403,6 +448,7 @@ class IncidentController:
                 action_result = self.execute(decision)
                 verification = None
                 status = "escalated"
+                reason = decision["reason"]
 
                 history.append(
                     self._record_attempt(
@@ -438,6 +484,7 @@ class IncidentController:
             if not safety_result["allowed"]:
                 verification = None
                 status = "blocked"
+                reason = action_result["message"]
                 history.append(
                     self._record_attempt(
                         attempt_number,
@@ -494,15 +541,70 @@ class IncidentController:
             # The next iteration observes again from scratch. It does not
             # know - and is not told - what to do next.
 
-        emit("complete", status=status, attempts=len(history))
+        if status == "unresolved" and len(history) >= self.MAX_ATTEMPTS:
+            status = "escalated"
+            reason = MAX_ATTEMPTS_REASON
+            event = TraceEvent(
+                attempt=len(history),
+                phase=TracePhase.ESCALATED,
+                execution={
+                    "status": "escalated",
+                    "reason": reason,
+                    "message": "Maximum automatic remediation attempts reached. Human investigation required.",
+                },
+            ).to_dict()
+            trace_events.append(event)
+            emit(
+                "escalated",
+                status=status,
+                attempt=len(history),
+                reason=reason,
+                history=history,
+            )
+        elif status == "escalated":
+            event = TraceEvent(
+                attempt=len(history),
+                phase=TracePhase.ESCALATED,
+                execution={
+                    "status": "escalated",
+                    "reason": reason,
+                    "message": "Automatic remediation stopped. Human investigation required.",
+                },
+            ).to_dict()
+            trace_events.append(event)
+            emit(
+                "escalated",
+                status=status,
+                attempt=len(history),
+                reason=reason,
+                history=history,
+            )
+
+        emit(
+            "complete",
+            status=status,
+            attempt=len(history),
+            attempts=len(history),
+            reason=reason,
+            history=history,
+        )
         return {
+            "run_id": run_id,
+            "goal": goal,
+            "started_at": started_at,
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "phase": "complete",
+            "attempt": len(history),
+            "history": history,
             "attempts": history,
             "evidence_history": evidence_history,
+            "trace_events": trace_events,
             "observations": observations,
             "decision": decision,
             "action_result": action_result,
             "verification": verification,
             "status": status,
+            "reason": reason,
         }
 
     @staticmethod

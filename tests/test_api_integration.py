@@ -43,6 +43,9 @@ def test_adaptive_api_run_rejects_false_success_then_recovers():
 
     assert response.status_code == 200
     result = response.json()["result"]
+    assert result["run_id"].startswith("inc-")
+    assert result["goal"]
+    assert result["started_at"]
     assert result["status"] == "resolved"
     assert [item["decision"]["action"] for item in result["attempts"]] == [
         "restart_service",
@@ -149,6 +152,9 @@ def test_timeline_is_render_ready_and_carries_live_agent_phase():
     assert payload["status"] == "resolved"
     assert payload["attempt_count"] == len(payload["timeline"]) >= 1
     assert payload["agent"]["running"] is False
+    assert payload["run_id"].startswith("inc-")
+    assert payload["goal"]
+    assert payload["agent"]["history"]
 
     attempt = payload["timeline"][0]
     for key in (

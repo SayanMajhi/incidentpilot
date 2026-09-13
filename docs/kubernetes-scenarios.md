@@ -6,7 +6,23 @@ are deliberately deterministic: the workload is a tiny local Python HTTP
 server, not a third-party test image, and it emits the evidence the agent
 needs through real pod logs and HTTP responses.
 
-## Build the workload image once
+## Recommended automated run
+
+From the repository root in PowerShell:
+
+```powershell
+.\scripts\check-k8s-demo.ps1
+.\scripts\setup-k8s-demo.ps1
+.\scripts\run-k8s-demo.ps1
+```
+
+The final command defaults to `adaptive-resource-pressure`, runs the real
+controller, and writes `.incidentpilot-kubernetes-run.json`. Use
+`-Scenario restart` or `-Scenario bad-deployment` for the other stories. Add
+`-ScenarioOnly` when the backend/dashboard is already running and you want to
+click **Run Incident** there.
+
+## Build the workload image manually
 
 From the repository root, with Docker Desktop and the `incidentpilot` kind
 cluster running:
@@ -86,6 +102,14 @@ The reconciliation result is retained inside an action result, for example:
 ```
 
 ## Reset
+
+The repeatable reset is:
+
+```powershell
+.\scripts\reset-k8s-demo.ps1
+```
+
+Manual alternatives follow.
 
 Return to the original nginx demo workload:
 

@@ -79,8 +79,5 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(
-        f"Scenario workload started: mode={MODE}, restarted={bool(RESTARTED_AT)}.",
-        flush=True,
-    )
+    print("Scenario workload started.", flush=True)
     ThreadingHTTPServer(("0.0.0.0", 80), Handler).serve_forever()

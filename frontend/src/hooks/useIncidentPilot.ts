@@ -37,11 +37,12 @@ const PHASE_LABELS: Record<string, string> = {
   failed: 'Run failed',
 };
 
-const emptySummary: IncidentSummary = { scenario: 'None', agentStatus: 'Idle', attempts: '0', finalAction: 'None', finalVerification: 'Pending', finalOutcome: 'None' };
-const emptyDecision: DecisionDetails = { source: 'none', action: 'None', target: 'None', confidence: '0%', reason: 'None' };
+const DEFAULT_GOAL = 'Restore the service to configured SLOs while respecting safety constraints.';
+const emptySummary: IncidentSummary = { scenario: 'None', agentStatus: 'Idle', attempts: '0', finalAction: 'None', finalVerification: 'Pending', finalOutcome: 'None', diagnosis: 'None', evidence: 'None' };
+const emptyDecision: DecisionDetails = { source: 'none', action: 'None', target: 'None', confidence: '0%', reason: 'None', aiSuggestion: 'Not used', validation: 'Deterministic mode', validationReason: 'No model proposal was requested.' };
 const emptySafety: SafetyState = { status: 'UNCHECKED', action: 'None', verdict: 'Pending', reason: 'Awaiting check' };
-const emptyVerification: VerificationState = { status: 'UNVERIFIED', recovered: 'Pending', isRecoveredBool: null, reason: 'Pending', errorRate: '-', latency: '-', serviceStatus: '-' };
-const idleAgent: AgentRunState = { running: false, phase: 'idle', attempt: 0, updated_at: null, details: {} };
+const emptyVerification: VerificationState = { status: 'UNVERIFIED', recovered: 'Pending', isRecoveredBool: null, reason: 'Pending', errorRate: '-', latency: '-', serviceStatus: '-', metricsBefore: '-', metricsAfter: '-' };
+const idleAgent: AgentRunState = { run_id: null, goal: DEFAULT_GOAL, started_at: null, running: false, status: 'idle', phase: 'idle', attempt: 0, max_attempts: 3, history: [], reason: null, updated_at: null, details: {} };
 
 function titleCase(value: string): string {
   return value.replace(/_/g, ' ').replace(/\b\w/g, (letter: string) => letter.toUpperCase());
@@ -72,7 +73,33 @@ function actionLabel(action: string, target: string | number | null, currentRepl
   return titleCase(action);
 }
 
-function mapAttempt(attempt: BackendAttempt, index: number, total: number): Attempt {
+function mapDecision(decision: BackendAttempt['decision']): DecisionDetails {
+  const proposal = decision.llm_proposal;
+  if (decision.source === 'llm') {
+    return {
+      source: 'Qwen-assisted',
+      action: decision.action,
+      target: formatTarget(decision.target),
+      confidence: `${(decision.confidence * 100).toFixed(0)}%`,
+      reason: decision.reason,
+      aiSuggestion: `${actionLabel(decision.action, decision.target, 1)} (${(decision.confidence * 100).toFixed(0)}%)`,
+      validation: 'ACCEPTED',
+      validationReason: 'The proposal matched the deterministic evidence and passed schema validation.',
+    };
+  }
+  return {
+    source: decision.source || 'deterministic',
+    action: decision.action,
+    target: formatTarget(decision.target),
+    confidence: `${(decision.confidence * 100).toFixed(0)}%`,
+    reason: decision.reason,
+    aiSuggestion: proposal ? `${actionLabel(proposal.action, proposal.target, 1)} (${(proposal.confidence * 100).toFixed(0)}%)` : 'Not used',
+    validation: proposal ? 'REJECTED' : 'Deterministic mode',
+    validationReason: decision.arbitration_reason || decision.fallback_reason || 'No model proposal was requested.',
+  };
+}
+
+function mapAttempt(attempt: BackendAttempt, index: number, total: number, scenario: string): Attempt {
   const { observations, detection, diagnosis, decision, safety_result, action_result, verification } = attempt;
   const metrics = observations.metrics;
   const capacity = observations.capacity;
@@ -101,10 +128,40 @@ function mapAttempt(attempt: BackendAttempt, index: number, total: number): Atte
     }
   }
   const succeeded = verification?.recovered === true;
+  const statusText = succeeded ? 'RECOVERED' : verification ? 'VERIFICATION FAILED' : action_result.status.toUpperCase();
+  const mappedDecision = mapDecision(decision);
+  const mappedVerification: VerificationState = verification ? {
+    status: verification.recovered ? 'VERIFIED' : 'FAILED',
+    recovered: verification.recovered ? 'YES' : 'NO',
+    isRecoveredBool: verification.recovered,
+    reason: verification.reason,
+    errorRate: after ? `${(after.error_rate * 100).toFixed(1)}%` : 'unavailable',
+    latency: after ? `${after.latency_ms}ms` : 'unavailable',
+    serviceStatus: after?.status?.toUpperCase() || 'UNKNOWN',
+    metricsBefore: verification.metrics_before ? `${(verification.metrics_before.error_rate * 100).toFixed(1)}% errors · ${verification.metrics_before.latency_ms}ms · ${verification.metrics_before.status}` : 'unavailable',
+    metricsAfter: after ? `${(after.error_rate * 100).toFixed(1)}% errors · ${after.latency_ms}ms · ${after.status}` : 'unavailable',
+  } : { ...emptyVerification, status: 'NOT RUN', reason: action_result.message };
+  const mappedSafety: SafetyState = {
+    status: safety_result.checked ? (safety_result.allowed ? 'ALLOWED' : 'BLOCKED') : 'NOT REQUIRED',
+    action: safety_result.action,
+    verdict: safety_result.checked ? (safety_result.allowed ? 'ALLOWED' : 'BLOCKED') : 'SKIPPED',
+    reason: action_result.message,
+  };
   return {
     id: `attempt-${attempt.attempt}`, number: attempt.attempt, tag: `ATTEMPT ${attempt.attempt}`,
-    statusText: succeeded ? 'RECOVERED' : verification ? 'VERIFICATION FAILED' : action_result.status.toUpperCase(),
-    statusClass: succeeded ? 'success' : 'retry', steps,
+    statusText, statusClass: succeeded ? 'success' : 'retry', steps,
+    inspector: {
+      summary: {
+        scenario: scenarioLabel(scenario), agentStatus: statusText, attempts: `${attempt.attempt} of ${total}`,
+        finalAction: decision.action, finalVerification: verification ? (succeeded ? 'Recovered' : 'Failed') : 'Not run',
+        finalOutcome: statusText, diagnosis: `${titleCase(diagnosis.probable_cause)} — ${diagnosis.summary}`,
+        evidence: evidence.length ? evidence.map((item) => `${item.id}: ${item.detail}`).join(' ') : 'No causal evidence was found.',
+      },
+      decision: mappedDecision,
+      safety: mappedSafety,
+      verification: mappedVerification,
+      logs: mapLogs(observations.logs),
+    },
   };
 }
 
@@ -155,7 +212,6 @@ export function useIncidentPilot(initialBaseUrl = api.DEFAULT_BASE_URL) {
 
   const applyIncident = useCallback((
     timeline: TimelineResponse,
-    service: ServiceState,
     scenario: string,
     agentState: AgentRunState,
   ) => {
@@ -176,6 +232,8 @@ export function useIncidentPilot(initialBaseUrl = api.DEFAULT_BASE_URL) {
     const status = timeline.status as IncidentStatus;
     const recovered = status === 'resolved';
     const finalVerification = finalAttempt.verification;
+    const mappedAttempts = backendAttempts.map((attempt, index) => mapAttempt(attempt, index, backendAttempts.length, scenario));
+    const finalInspector = mappedAttempts[mappedAttempts.length - 1].inspector;
 
     setSummary({
       scenario: label,
@@ -186,37 +244,17 @@ export function useIncidentPilot(initialBaseUrl = api.DEFAULT_BASE_URL) {
       finalAction: finalAttempt.decision.action,
       finalVerification: finalVerification ? (finalVerification.recovered ? 'Recovered' : 'Failed') : 'Not run',
       finalOutcome: agentState.running ? 'Running' : status.toUpperCase(),
+      diagnosis: finalInspector.summary.diagnosis,
+      evidence: finalInspector.summary.evidence,
     });
 
-    setDecision({
-      source: finalAttempt.decision.source || 'deterministic',
-      action: finalAttempt.decision.action,
-      target: formatTarget(finalAttempt.decision.target),
-      confidence: `${(finalAttempt.decision.confidence * 100).toFixed(0)}%`,
-      reason: finalAttempt.decision.reason,
-    });
-
-    setSafety({
-      status: finalAttempt.safety_result.checked ? (finalAttempt.safety_result.allowed ? 'ALLOWED' : 'BLOCKED') : 'NOT REQUIRED',
-      action: finalAttempt.safety_result.action,
-      verdict: finalAttempt.safety_result.checked ? (finalAttempt.safety_result.allowed ? 'ALLOWED' : 'BLOCKED') : 'SKIPPED',
-      reason: finalAttempt.action_result.message,
-    });
-
-    setVerification(finalVerification ? {
-      status: finalVerification.recovered ? 'VERIFIED' : 'FAILED',
-      recovered: finalVerification.recovered ? 'YES' : 'NO',
-      isRecoveredBool: finalVerification.recovered,
-      reason: finalVerification.reason,
-      errorRate: `${(service.error_rate * 100).toFixed(1)}%`,
-      latency: `${service.latency_ms}ms`,
-      serviceStatus: service.status.toUpperCase(),
-    } : { ...emptyVerification, status: 'NOT RUN', reason: finalAttempt.action_result.message });
-
-    setAttempts(backendAttempts.map((attempt, index) => mapAttempt(attempt, index, backendAttempts.length)));
+    setDecision(finalInspector.decision);
+    setSafety(finalInspector.safety);
+    setVerification(finalInspector.verification);
+    setAttempts(mappedAttempts);
     setResolutionBanner({
       visible: !agentState.running,
-      text: recovered ? 'INCIDENT RECOVERED — VERIFIED AGAINST LIVE TELEMETRY' : `INCIDENT ${status.toUpperCase()}`,
+      text: recovered ? 'INCIDENT RECOVERED — VERIFIED AGAINST LIVE TELEMETRY' : status === 'escalated' ? `INCIDENT ESCALATED — ${timeline.reason || 'Human investigation required'}` : `INCIDENT ${status.toUpperCase()}`,
       isResolved: recovered,
     });
   }, []);
@@ -241,7 +279,7 @@ export function useIncidentPilot(initialBaseUrl = api.DEFAULT_BASE_URL) {
       setAgent(status.agent);
       setLogs(mapLogs(status.diagnostics.logs));
       setLastSyncTime(`Live API · ${new Date().toLocaleTimeString()}`);
-      applyIncident(timeline, status.service, status.scenario, status.agent);
+      applyIncident(timeline, status.scenario, status.agent);
       setOperationError(null);
       return status;
     } catch (error) {

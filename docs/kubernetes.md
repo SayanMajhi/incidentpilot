@@ -22,6 +22,27 @@ The recommended cluster is **kind** (Kubernetes in Docker): one command
 creates it, one command deletes it, and it never touches anything else.
 Minikube and Docker Desktop's built-in Kubernetes also work.
 
+## Fast path on Windows
+
+From the repository root, these scripts report every prerequisite, create the
+kind cluster when needed, build and load the deterministic workload, and run
+the adaptive scenario:
+
+```powershell
+.\scripts\check-k8s-demo.ps1
+.\scripts\setup-k8s-demo.ps1
+.\scripts\run-k8s-demo.ps1
+```
+
+Reset the workload to healthy v41 with one replica:
+
+```powershell
+.\scripts\reset-k8s-demo.ps1
+```
+
+The sections below document the same setup manually and support minikube or
+Docker Desktop Kubernetes when you deliberately select those contexts.
+
 ---
 
 ## 1. Create the local cluster
@@ -137,9 +158,9 @@ $env:ENVIRONMENT='kubernetes'
 `POST /run-incident` runs the controller against the demo Deployment.
 
 In Kubernetes mode the simulator-only endpoints (`/simulate/*`, `/health`,
-`/metrics`, `/version`) return **409**, and the dashboard's scenario buttons
-therefore report an error: there is no scenario injection against a real
-cluster yet.
+`/metrics`, `/version`) return **409**. Real-cluster failures are injected by
+the allow-listed manifests through `scripts/run-k8s-demo.ps1`; the API itself
+does not mutate a cluster merely to create a failure.
 
 ### Configuration
 
@@ -247,4 +268,6 @@ The mutating test scales the demo Deployment and restores its replica count.
 - Rollback uses a strategic-merge patch of the pod template. Fields that exist
   only in the newer template are not removed, which suits the demo workload
   but is not a full `kubectl rollout undo`.
-- No failure-injection scenarios exist for Kubernetes yet.
+- CPU and memory remain `null` when no Kubernetes Metrics API is installed;
+  application probes, replica state, events and resource-pressure logs keep
+  the primary scenarios independent of metrics-server.

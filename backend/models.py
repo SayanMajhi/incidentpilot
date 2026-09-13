@@ -53,6 +53,7 @@ class TracePhase(str, Enum):
     EXECUTING = "executing"
     VERIFYING = "verifying"
     ADAPTING = "adapting"
+    ESCALATED = "escalated"
     COMPLETE = "complete"
     FAILED = "failed"
 
@@ -175,3 +176,24 @@ class TraceEvent(SerializableModel):
     safety: dict[str, JsonValue] | None = None
     execution: dict[str, JsonValue] | None = None
     verification: VerificationResult | None = None
+
+
+class IncidentRunStatus(str, Enum):
+    RUNNING = "running"
+    RESOLVED = "resolved"
+    BLOCKED = "blocked"
+    ESCALATED = "escalated"
+    FAILED = "failed"
+
+
+class IncidentRunState(SerializableModel):
+    """Goal and progress for one bounded incident-response run."""
+
+    run_id: str = Field(pattern=r"^inc-[a-f0-9]+$")
+    goal: str = Field(min_length=1)
+    started_at: datetime
+    status: IncidentRunStatus
+    phase: TracePhase
+    attempt: int = Field(ge=0)
+    history: list[dict[str, Any]] = Field(default_factory=list)
+    reason: str | None = None

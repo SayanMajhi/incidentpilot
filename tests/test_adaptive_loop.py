@@ -310,7 +310,7 @@ def test_insufficient_scaling_is_followed_by_a_larger_step_sized_from_fresh_tele
 # 7. Maximum attempts are respected.
 # ===========================================================================
 
-def test_engine_driven_loop_stops_at_max_attempts_while_still_unresolved():
+def test_engine_driven_loop_escalates_at_max_attempts():
     """Hung workers, a bad deployment and an 8x traffic surge (more than the
     3-replica safe maximum can absorb). Each attempt removes one cause the
     fresh evidence reveals, but the incident can never fully recover."""
@@ -326,7 +326,8 @@ def test_engine_driven_loop_stops_at_max_attempts_while_still_unresolved():
         ("scale_service", 3),
     ]
     assert all(attempt["verification"].recovered is False for attempt in result["attempts"])
-    assert result["status"] == "unresolved"
+    assert result["status"] == "escalated"
+    assert result["reason"] == "Maximum remediation attempts exhausted"
 
 
 def test_lower_attempt_budget_is_honoured():
@@ -340,7 +341,7 @@ def test_lower_attempt_budget_is_honoured():
 
     assert len(result["attempts"]) == 2
     scale.assert_not_called()
-    assert result["status"] == "unresolved"
+    assert result["status"] == "escalated"
 
 
 # ===========================================================================

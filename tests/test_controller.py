@@ -177,10 +177,8 @@ def test_action_success_does_not_imply_incident_recovery():
     assert verification.recovered is False
 
 
-def test_run_incident_status_is_unresolved_when_action_does_not_fix_incident():
-    """run_incident() must report "unresolved", not "resolved", when
-    the chosen action succeeds as an action but verification still
-    fails."""
+def test_run_incident_escalates_when_action_never_fixes_incident():
+    """Repeated command success cannot hide exhausted verification attempts."""
 
     service.simulate_outage()
 
@@ -195,7 +193,8 @@ def test_run_incident_status_is_unresolved_when_action_does_not_fix_incident():
         result = controller.run_incident()
 
     assert result["action_result"]["success"] is True
-    assert result["status"] == "unresolved"
+    assert result["status"] == "escalated"
+    assert result["reason"] == "Maximum remediation attempts exhausted"
 
 
 def test_run_incident_status_is_blocked_for_unsafe_decision():
@@ -327,9 +326,37 @@ def test_run_incident_stops_after_max_attempts_without_looping_forever():
         assert attempt["action_result"]["success"] is True
         assert attempt["verification"].recovered is False
 
-    # Never resolved, and never escalated either - it simply ran out of
-    # bounded attempts.
-    assert result["status"] == "unresolved"
+    assert result["status"] == "escalated"
+    assert result["reason"] == "Maximum remediation attempts exhausted"
+    assert result["trace_events"][-1]["phase"] == "escalated"
+    assert "Human investigation required" in result["trace_events"][-1]["execution"]["message"]
+
+
+def test_verification_waits_between_samples_without_waiting_after_last_sample():
+    delays = []
+    ctl = IncidentController(
+        use_llm=False,
+        infrastructure=controller.infrastructure,
+        verification_interval_seconds=0.25,
+        sleep_func=delays.append,
+    )
+
+    result = ctl.verify()
+
+    assert result.telemetry["samples"] == ctl.VERIFICATION_SAMPLES
+    assert delays == [0.25, 0.25]
+
+
+def test_incident_result_exposes_goal_and_unique_run_identity():
+    first = IncidentController(use_llm=False, verification_interval_seconds=0).run_incident()
+    second = IncidentController(use_llm=False, verification_interval_seconds=0).run_incident()
+
+    assert first["run_id"].startswith("inc-")
+    assert first["run_id"] != second["run_id"]
+    assert first["goal"]
+    assert first["started_at"]
+    assert first["phase"] == "complete"
+    assert first["attempt"] == len(first["history"])
 
 
 def test_run_incident_unsafe_action_stays_blocked_across_the_loop():

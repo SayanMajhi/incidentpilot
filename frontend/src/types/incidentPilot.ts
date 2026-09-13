@@ -49,9 +49,16 @@ export interface RuntimeConfig {
 }
 
 export interface AgentRunState {
+  run_id: string | null;
+  goal: string;
+  started_at: string | null;
   running: boolean;
+  status: IncidentStatus | 'running';
   phase: string;
   attempt: number;
+  max_attempts: number;
+  history: BackendAttempt[];
+  reason: string | null;
   updated_at: string | null;
   details: Record<string, unknown>;
 }
@@ -69,6 +76,8 @@ export interface IncidentSummary {
   finalAction: string;
   finalVerification: string;
   finalOutcome: string;
+  diagnosis: string;
+  evidence: string;
 }
 
 export interface DecisionDetails {
@@ -77,6 +86,9 @@ export interface DecisionDetails {
   target: string;
   confidence: string;
   reason: string;
+  aiSuggestion: string;
+  validation: string;
+  validationReason: string;
 }
 
 export interface SafetyState {
@@ -94,6 +106,8 @@ export interface VerificationState {
   errorRate: string;
   latency: string;
   serviceStatus: string;
+  metricsBefore: string;
+  metricsAfter: string;
 }
 
 export interface AttemptStep {
@@ -110,6 +124,13 @@ export interface Attempt {
   statusText: string;
   statusClass: 'running' | 'success' | 'retry';
   steps: AttemptStep[];
+  inspector: {
+    summary: IncidentSummary;
+    decision: DecisionDetails;
+    safety: SafetyState;
+    verification: VerificationState;
+    logs: LogEntry[];
+  };
 }
 
 export interface ResolutionBanner {
@@ -150,6 +171,16 @@ export interface BackendDecision {
   source?: string;
   fallback_reason?: string;
   arbitration_reason?: string;
+  llm_proposal?: {
+    action: string;
+    target: string | number | null;
+    reason: string;
+    confidence: number;
+  };
+  deterministic_validation?: {
+    status: 'accepted' | 'rejected';
+    reason: string;
+  };
 }
 
 export interface BackendVerification {
@@ -222,11 +253,19 @@ export interface BackendAttempt {
 export type IncidentStatus = 'resolved' | 'unresolved' | 'blocked' | 'escalated' | 'idle';
 
 export interface IncidentResult {
+  run_id: string;
+  goal: string;
+  started_at: string;
+  completed_at: string;
+  phase: string;
+  attempt: number;
+  history: BackendAttempt[];
   attempts: BackendAttempt[];
   status: Exclude<IncidentStatus, 'idle'>;
   decision: BackendDecision;
   action_result: BackendActionResult;
   verification: BackendVerification | null;
+  reason: string | null;
 }
 
 /** `GET /status` — live service state plus the agent's live run progress. */
@@ -245,6 +284,10 @@ export interface IncidentStatusResponse {
 /** `GET /timeline` — the render-ready execution history for the timeline. */
 export interface TimelineResponse {
   status: IncidentStatus;
+  run_id: string | null;
+  goal: string;
+  started_at: string | null;
+  reason: string | null;
   agent: AgentRunState;
   attempt_count: number;
   timeline: BackendAttempt[];

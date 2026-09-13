@@ -998,12 +998,20 @@
 
 /* Command center hierarchy */
 .incidentpilot-root .command-bar,
-.incidentpilot-root .incident-focus {
+.incidentpilot-root .incident-focus,
+.incidentpilot-root .run-context {
   border: 1px solid var(--surface-border);
   border-radius: var(--radius-lg);
   background: var(--bg-elevated);
   box-shadow: 0 16px 38px rgba(5, 10, 22, .18), inset 0 1px 0 rgba(255,255,255,.025);
 }
+
+.incidentpilot-root .run-context { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 15px 20px; }
+.incidentpilot-root .run-context strong { display: block; margin-top: 3px; color: var(--text-bright); font-family: var(--font-mono); font-size: .86rem; }
+.incidentpilot-root .run-context p { margin-top: 4px; color: var(--text-muted); font-size: .82rem; }
+.incidentpilot-root .run-context dl { display: flex; flex: 0 0 auto; gap: 24px; }
+.incidentpilot-root .run-context dt { color: var(--text-faint); font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; }
+.incidentpilot-root .run-context dd { margin-top: 3px; color: var(--text-main); font-family: var(--font-mono); font-size: .78rem; }
 
 .incidentpilot-root .command-bar {
   display: flex;
@@ -1130,7 +1138,9 @@
 
 @media (max-width: 760px) {
   .incidentpilot-root .command-bar,
-  .incidentpilot-root .incident-focus-heading { align-items: stretch; flex-direction: column; }
+  .incidentpilot-root .incident-focus-heading,
+  .incidentpilot-root .run-context { align-items: stretch; flex-direction: column; }
+  .incidentpilot-root .run-context dl { justify-content: space-between; gap: 12px; }
   .incidentpilot-root .command-state { align-items: stretch; flex-direction: column; gap: 12px; }
   .incidentpilot-root .command-state > div { grid-template-columns: 110px 1fr; align-items: baseline; }
   .incidentpilot-root .command-running { justify-content: center; width: 100%; }

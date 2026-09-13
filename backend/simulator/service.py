@@ -3,6 +3,7 @@ import os
 from datetime import datetime, timezone
 from threading import Lock
 from typing import Literal
+from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,6 +11,7 @@ from pydantic import BaseModel, PrivateAttr
 from dotenv import load_dotenv
 
 from backend.shared import slo
+from backend.agent.controller import DEFAULT_GOAL, MAX_ATTEMPTS
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -184,9 +186,16 @@ def _recompute_service_health() -> None:
 last_incident_result = None
 run_lock = Lock()
 run_state = {
+    "run_id": None,
+    "goal": DEFAULT_GOAL,
+    "started_at": None,
     "running": False,
+    "status": "idle",
     "phase": "idle",
     "attempt": 0,
+    "max_attempts": MAX_ATTEMPTS,
+    "history": [],
+    "reason": None,
     "updated_at": None,
     "details": {},
 }
@@ -200,9 +209,16 @@ def _reset_run_state() -> None:
     previous run) alongside ``incident: null``.
     """
     run_state.update({
+        "run_id": None,
+        "goal": DEFAULT_GOAL,
+        "started_at": None,
         "running": False,
+        "status": "idle",
         "phase": "idle",
         "attempt": 0,
+        "max_attempts": MAX_ATTEMPTS,
+        "history": [],
+        "reason": None,
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "details": {},
     })
@@ -391,12 +407,16 @@ def simulate_rollback(version: str) -> SimulationActionResponse:
     )
 
 def _update_run_state(phase, details=None):
+    details = details or {}
     run_state.update({
         "phase": phase,
-        "attempt": (details or {}).get("attempt", run_state.get("attempt", 0)),
+        "attempt": details.get("attempt", run_state.get("attempt", 0)),
         "updated_at": datetime.now(timezone.utc).isoformat(),
-        "details": details or {},
+        "details": details,
     })
+    for key in ("run_id", "goal", "started_at", "status", "history", "reason"):
+        if key in details:
+            run_state[key] = details[key]
 
 
 @app.post("/run-incident")
@@ -408,19 +428,45 @@ def run_incident():
     if not run_lock.acquire(blocking=False):
         raise HTTPException(status_code=409, detail="An incident run is already in progress.")
 
-    run_state.update({"running": True, "attempt": 0})
-    _update_run_state("observing")
+    run_id = f"inc-{uuid4().hex}"
+    started_at = datetime.now(timezone.utc).isoformat()
+    run_state.update({
+        "run_id": run_id,
+        "goal": DEFAULT_GOAL,
+        "started_at": started_at,
+        "running": True,
+        "status": "running",
+        "phase": "observing",
+        "attempt": 0,
+        "history": [],
+        "reason": None,
+    })
     try:
-        result = controller.run_incident(on_event=_update_run_state)
+        result = controller.run_incident(
+            on_event=_update_run_state,
+            run_id=run_id,
+            goal=DEFAULT_GOAL,
+            started_at=started_at,
+        )
         if not isinstance(result, dict):
             raise RuntimeError("Incident controller returned an invalid result.")
         last_incident_result = result
+        run_state.update({
+            "status": result["status"],
+            "phase": result["phase"],
+            "attempt": result["attempt"],
+            "history": result["history"],
+            "reason": result["reason"],
+        })
     except Exception as error:
         logger.exception("Incident controller execution failed")
         # Discard the previous run's result: reporting a stale "resolved"
         # incident under a "failed" phase would be actively misleading.
         last_incident_result = None
-        _update_run_state("failed", {"error": type(error).__name__})
+        _update_run_state("failed", {
+            "status": "failed",
+            "error": type(error).__name__,
+        })
         raise HTTPException(
             status_code=500,
             detail="Incident run failed. Check the backend logs for details.",
@@ -518,6 +564,11 @@ def get_incident_timeline():
             if last_incident_result
             else "idle"
         ),
+        "run_id": last_incident_result.get("run_id") if last_incident_result else None,
+        "goal": last_incident_result.get("goal", DEFAULT_GOAL) if last_incident_result else DEFAULT_GOAL,
+        "started_at": last_incident_result.get("started_at") if last_incident_result else None,
+        "reason": last_incident_result.get("reason") if last_incident_result else None,
+        "trace_events": last_incident_result.get("trace_events", []) if last_incident_result else [],
         "agent": dict(run_state),
         "attempt_count": len(attempts),
         "timeline": attempts,

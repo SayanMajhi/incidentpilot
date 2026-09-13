@@ -13,6 +13,7 @@ import { Footer } from './Footer';
 import { LifecycleStrip } from './LifecycleStrip';
 import { CommandBar } from './CommandBar';
 import { IncidentFocus } from './IncidentFocus';
+import { RunContext } from './RunContext';
 
 interface IncidentPilotDashboardProps {
   initialBaseUrl?: string;
@@ -48,18 +49,19 @@ export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
     maxSamples,
     logs,
     operationError,
+    agent,
   } = useIncidentPilot(initialBaseUrl);
 
   const isOffline = connectionStatus !== 'connected';
 
   // Drop a stale selection when a new run replaces the attempt list, so an
   // attempt selected in a previous run cannot stay highlighted in this one.
-  const attemptCount = attempts.length;
-  useEffect(() => { setSelectedNumber(null); }, [attemptCount]);
+  useEffect(() => { setSelectedNumber(null); }, [agent.run_id]);
 
   const selectedAttempt = selectedNumber === null
     ? attempts[attempts.length - 1]
     : attempts.find((attempt) => attempt.number === selectedNumber) ?? attempts[attempts.length - 1];
+  const inspector = selectedAttempt?.inspector;
 
   return (
     <div className="incidentpilot-root">
@@ -90,6 +92,8 @@ export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
           isRunning={isRunningAgent}
           service={simState}
         />
+
+        <RunContext agent={agent} phase={agentPhase} />
 
         <IncidentFocus
           service={simState}
@@ -144,11 +148,11 @@ export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
           </div>
 
           <InspectorTabs
-            summary={summary}
-            decision={decision}
-            safety={safety}
-            verification={verification}
-            logs={logs}
+            summary={inspector?.summary ?? summary}
+            decision={inspector?.decision ?? decision}
+            safety={inspector?.safety ?? safety}
+            verification={inspector?.verification ?? verification}
+            logs={inspector?.logs ?? logs}
             selectedAttemptLabel={selectedAttempt ? `Attempt ${selectedAttempt.number} selected` : 'Latest incident state'}
           />
         </div>

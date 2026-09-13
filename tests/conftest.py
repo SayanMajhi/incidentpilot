@@ -12,3 +12,4 @@ RUN_K8S_INTEGRATION=1 (see docs/kubernetes.md).
 import os
 
 os.environ["ENVIRONMENT"] = "simulator"
+os.environ["VERIFICATION_INTERVAL_SECONDS"] = "0"

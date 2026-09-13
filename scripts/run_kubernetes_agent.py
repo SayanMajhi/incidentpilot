@@ -19,6 +19,8 @@ def compact_attempt(attempt: dict) -> dict:
     """Keep the action, policy verdict, wait result, and verification."""
     return {
         "attempt": attempt.get("attempt"),
+        "evidence": [item.get("id") for item in attempt.get("evidence", [])],
+        "new_evidence": attempt.get("new_evidence", []),
         "diagnosis": attempt.get("diagnosis", {}).get("probable_cause"),
         "action": attempt.get("decision", {}).get("action"),
         "target": attempt.get("decision", {}).get("target"),
@@ -32,8 +34,12 @@ def compact_attempt(attempt: dict) -> dict:
 if __name__ == "__main__":
     result = IncidentController(use_llm=False).run_incident()
     summary = {
+        "run_id": result["run_id"],
+        "goal": result["goal"],
         "status": result["status"],
+        "reason": result["reason"],
         "attempts": [compact_attempt(attempt) for attempt in result["attempts"]],
+        "trace_events": result["trace_events"],
     }
     output = Path(".incidentpilot-kubernetes-run.json")
     output.write_text(json.dumps(summary, indent=2, default=str) + "\n", encoding="utf-8")
