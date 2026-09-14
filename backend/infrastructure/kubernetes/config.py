@@ -160,6 +160,9 @@ class KubernetesSettings:
         if not 1 <= self.log_tail_lines <= 200:
             raise InfrastructureSafetyError("K8S_LOG_TAIL_LINES must be between 1 and 200.")
 
+        if not 1 <= self.max_pods_for_logs <= 20:
+            raise InfrastructureSafetyError("K8S_MAX_PODS_FOR_LOGS must be between 1 and 20.")
+
         if not 1 <= self.rollout_timeout_seconds <= 180:
             raise InfrastructureSafetyError(
                 "K8S_ROLLOUT_TIMEOUT_SECONDS must be between 1 and 180."
@@ -207,5 +210,6 @@ class KubernetesSettings:
             probe_samples=_int(env, "K8S_PROBE_SAMPLES", 5),
             probe_timeout_seconds=_float(env, "K8S_PROBE_TIMEOUT_SECONDS", 2.0),
             log_tail_lines=_int(env, "K8S_LOG_TAIL_LINES", 20),
+            max_pods_for_logs=_int(env, "K8S_MAX_PODS_FOR_LOGS", 3),
             rollout_timeout_seconds=_float(env, "K8S_ROLLOUT_TIMEOUT_SECONDS", 90.0),
         )

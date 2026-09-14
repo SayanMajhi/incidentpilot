@@ -370,3 +370,46 @@ def test_missing_model_escalates(monkeypatch):
     engine = LLMDecisionEngine(client=None, model=None, api_key="fake-token")
     decision = engine.decide(OBSERVATIONS)
     assert_safe_escalation(decision, engine, expected_last_status="missing_model")
+
+
+# ---------------------------------------------------------------------------
+# Arbitration: the model proposes an action, never a target
+# ---------------------------------------------------------------------------
+
+def test_matching_action_still_uses_the_evidence_derived_target():
+    """Agreeing on `scale_service` is not agreement on a replica count, so the
+    deterministic target must survive arbitration."""
+    from backend.agent.controller import IncidentController
+
+    class StubDeterministic:
+        @staticmethod
+        def diagnose(_observations):
+            return {"probable_cause": "resource_exhaustion", "evidence": []}
+
+        @staticmethod
+        def decide(_observations, _diagnosis=None):
+            return {"action": "scale_service", "target": 2, "reason": "utilization", "confidence": 0.9}
+
+    class StubLLM:
+        last_status = "success"
+        last_error = None
+
+        @staticmethod
+        def decide(_observations):
+            return {"action": "scale_service", "target": 3, "reason": "model", "confidence": 0.8}
+
+    agent = IncidentController(
+        use_llm=True,
+        llm_engine=StubLLM(),
+        deterministic_engine=StubDeterministic(),
+    )
+
+    decision = agent.decide(
+        {"metrics": {"status": "down", "error_rate": 0.7, "latency_ms": 900}},
+        diagnosis={"probable_cause": "resource_exhaustion"},
+    )
+
+    assert decision["source"] == "llm"
+    assert decision["target"] == 2
+    assert decision["proposed_target"] == 3
+    assert decision["deterministic_validation"]["status"] == "accepted_with_corrected_target"

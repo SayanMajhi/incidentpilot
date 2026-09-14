@@ -30,7 +30,21 @@ Require-Command 'kind' 'Run: winget install Kubernetes.kind'
 docker info *> $null
 Assert-ExitCode 'Connecting to Docker'
 
-$clusters = @(kind get clusters 2>$null)
+$savedErrorActionPreference = $ErrorActionPreference
+try {
+    # Windows PowerShell can surface kind's harmless "No kind clusters found"
+    # stderr message as a terminating NativeCommandError when the script uses
+    # ErrorActionPreference=Stop. An empty list is a valid first-run state.
+    $ErrorActionPreference = 'Continue'
+    $clusters = @(kind get clusters 2>$null)
+    $kindListExitCode = $LASTEXITCODE
+}
+finally {
+    $ErrorActionPreference = $savedErrorActionPreference
+}
+if ($kindListExitCode -ne 0) {
+    throw "Listing kind clusters failed with exit code $kindListExitCode."
+}
 if ($clusters -notcontains 'incidentpilot') {
     Write-Host 'Creating kind cluster incidentpilot...'
     kind create cluster --config $clusterConfig

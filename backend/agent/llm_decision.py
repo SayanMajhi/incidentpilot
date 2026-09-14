@@ -1,26 +1,19 @@
-"""
-IncidentPilot - LLM Decision Engine
+"""Advisory decision engine backed by a hosted Qwen model.
 
-Qwen/Hugging Face is used as the primary reasoning engine.
-
-IMPORTANT:
-- The LLM only recommends an action.
-- It never executes remediation.
-- Every decision must pass through SafetyPolicy.
-- Failures are exposed through `last_status` so the controller
-  can fall back to the deterministic DecisionEngine.
+The engine proposes one action from a fixed vocabulary. It never executes
+anything, and its output is schema-validated here, arbitrated against the
+deterministic engine in the controller, and gated by the safety policy before
+execution. ``last_status`` and ``last_error`` tell the controller whether to
+fall back to the deterministic engine.
 """
 
 from __future__ import annotations
 
 import json
-import os
 import re
 from typing import Any, Dict, Optional
 
-from dotenv import load_dotenv
-
-load_dotenv()
+from backend.config import get_settings
 
 
 ALLOWED_ACTIONS = (
@@ -32,6 +25,10 @@ ALLOWED_ACTIONS = (
 
 _DEFAULT_MAX_TOKENS = 512
 _DEFAULT_TEMPERATURE = 0
+
+# Distinguishes "argument not supplied, read configuration" from an explicit
+# ``None``, which means the value is deliberately unset.
+_FROM_SETTINGS = object()
 
 
 SYSTEM_PROMPT = """You are IncidentPilot, an SRE incident diagnosis agent.
@@ -127,31 +124,31 @@ class LLMDecisionEngine:
     def __init__(
             self,
             client: Optional[Any] = None,
-            model: Optional[str] = None,
-            api_key: Optional[str] = None,
+            model: Any = _FROM_SETTINGS,
+            api_key: Any = _FROM_SETTINGS,
             max_tokens: int = _DEFAULT_MAX_TOKENS,
             temperature: float = _DEFAULT_TEMPERATURE,
+            timeout_seconds: Any = _FROM_SETTINGS,
     ) -> None:
+        settings = get_settings()
 
-        self.api_key = (
-            api_key
-            if api_key is not None
-            else os.getenv("HF_TOKEN")
-        )
+        if api_key is _FROM_SETTINGS:
+            token = settings.hf_token
+            api_key = token.get_secret_value() if token is not None else None
+        if model is _FROM_SETTINGS:
+            model = settings.hf_model
+        if timeout_seconds is _FROM_SETTINGS:
+            timeout_seconds = settings.hf_timeout_seconds
 
-        self.model = (
-            model
-            if model is not None
-            else os.getenv("HF_MODEL")
-        )
-
+        self.api_key = api_key
+        self.model = model
+        self.timeout_seconds = float(timeout_seconds)
         self.max_tokens = max_tokens
         self.temperature = temperature
 
         self._client = client
 
-        # Controller uses these fields to determine whether
-        # deterministic fallback is required.
+        # The controller reads these to decide whether to fall back.
         self.last_status = "not_called"
         self.last_error = None
 
@@ -176,15 +173,14 @@ class LLMDecisionEngine:
             model=self.model,
             provider="auto",
             api_key=self.api_key,
+            timeout=self.timeout_seconds,
         )
-
         return self._client
 
     def decide(
             self,
             observations: Dict[str, Any],
     ) -> Dict[str, Any]:
-
         self.last_status = "failed"
         self.last_error = None
 
@@ -193,7 +189,6 @@ class LLMDecisionEngine:
             self.last_error = (
                 "HF_TOKEN is not configured"
             )
-
             return self._escalation(
                 "HF_TOKEN is not configured; "
                 "cannot safely consult the LLM."
@@ -204,7 +199,6 @@ class LLMDecisionEngine:
             self.last_error = (
                 "HF_MODEL is not configured"
             )
-
             return self._escalation(
                 "HF_MODEL is not configured; "
                 "cannot safely consult the LLM."
@@ -247,26 +241,14 @@ class LLMDecisionEngine:
             }
 
             try:
-
-                response = (
-                    client.chat.completions.create(
-                        response_format=_RESPONSE_FORMAT,
-                        **call_kwargs,
-                    )
+                response = client.chat.completions.create(
+                    response_format=_RESPONSE_FORMAT,
+                    **call_kwargs,
                 )
-
-            except (TypeError, ValueError):
-
-                # Some Hugging Face providers/models do not
-                # support response_format.
-                #
-                # We still validate the response ourselves.
-                response = (
-                    client.chat.completions.create(
-                        **call_kwargs,
-                    )
-                )
-
+            except TypeError:
+                # Some providers reject the response_format argument outright.
+                # The response is schema-validated here either way.
+                response = client.chat.completions.create(**call_kwargs)
             content = self._extract_content(
                 response
             )
@@ -288,17 +270,13 @@ class LLMDecisionEngine:
                 raise ValueError(
                     "LLM returned an invalid decision"
                 )
-
             self.last_status = "success"
             self.last_error = None
-
             return validated
 
         except Exception as exc:
-
             self.last_status = "failed"
             self.last_error = str(exc)
-
             return self._escalation(
                 "LLM decision failed safely; "
                 "deterministic fallback is required."
@@ -330,10 +308,8 @@ class LLMDecisionEngine:
         if content is None:
             return ""
 
-        # Some providers return content as a list
-        # instead of a plain string.
+        # Some providers return content as a list of parts.
         if isinstance(content, list):
-
             parts = []
 
             for item in content:
@@ -346,9 +322,7 @@ class LLMDecisionEngine:
 
                     if text:
                         parts.append(str(text))
-
             content = "".join(parts)
-
         return str(content).strip()
 
     @staticmethod
@@ -370,7 +344,6 @@ class LLMDecisionEngine:
         Malformed JSON is rejected and safely falls back
         to the deterministic engine.
         """
-
         text = content.strip()
 
         # Remove Qwen reasoning blocks if present.
@@ -382,31 +355,26 @@ class LLMDecisionEngine:
         ).strip()
 
         if text.startswith("```"):
-
             text = re.sub(
                 r"^```(?:json)?\s*",
                 "",
                 text,
                 flags=re.IGNORECASE,
             )
-
             text = re.sub(
                 r"\s*```$",
                 "",
                 text,
             )
-
             text = text.strip()
 
         try:
-
             parsed = json.loads(text)
 
             if not isinstance(parsed, dict):
                 raise ValueError(
                     "LLM JSON response must be an object"
                 )
-
             return parsed
 
         except json.JSONDecodeError:
@@ -425,7 +393,6 @@ class LLMDecisionEngine:
             start = match.start()
 
             try:
-
                 parsed, _ = decoder.raw_decode(
                     text[start:]
                 )
@@ -435,7 +402,6 @@ class LLMDecisionEngine:
 
             except json.JSONDecodeError:
                 continue
-
         raise ValueError(
             "LLM response did not contain valid JSON"
         )
@@ -513,7 +479,6 @@ class LLMDecisionEngine:
 
             if not numeric_target.is_integer():
                 return None
-
             target = int(numeric_target)
 
         elif action == "restart_service":
@@ -525,7 +490,6 @@ class LLMDecisionEngine:
 
             if target is not None:
                 return None
-
         return {
             "action": action,
             "target": target,
@@ -537,7 +501,6 @@ class LLMDecisionEngine:
     def _escalation(
             reason: str,
     ) -> Dict[str, Any]:
-
         return {
             "action": "escalate",
             "target": None,

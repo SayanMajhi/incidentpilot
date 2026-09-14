@@ -1,6 +1,4 @@
-"""
-                  'THE DOCTOR'S BRAIN'
-Execution environment contract used by IncidentController.
+"""Execution environment contract used by IncidentController.
 
 The controller observes and acts only through this interface. This keeps the
 same observe > investigate > diagnose > decide > safety > act > verify loop
@@ -22,16 +20,20 @@ resolved. Recovery is always verified separately using fresh telemetry.
 
 Implementations expose a fixed set of operations. There is no generic
 "run a command" or "apply a resource" capability.
-
 """
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List
 
+
 class InfrastructureError(RuntimeError):
     """The environment is not configured correctly or could not be reached."""
+
+
 class InfrastructureSafetyError(InfrastructureError):
     """The operation was refused because it is outside the permitted scope."""
+
+
 class Infrastructure(ABC):
     """An environment that IncidentController can monitor and fix."""
 

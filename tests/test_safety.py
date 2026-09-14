@@ -134,3 +134,31 @@ def test_namespace_rejection_carries_policy_evidence():
     assert decision.allowed is False
     assert decision.rule_id == "namespace_allowlist"
     assert decision.namespace == "default"
+
+
+def test_unreadable_history_is_not_reported_as_an_unknown_version():
+    """An unreachable environment must not be denied with a rollback-history
+    reason, which would blame the version for an infrastructure outage."""
+    decision = policy.evaluate(
+        "rollback_deployment",
+        version="v41",
+        namespace="incidentpilot",
+        deployment_history=None,
+        current_version="v42",
+    )
+
+    assert decision.allowed is True
+    assert decision.rule_id == "rollback_history"
+
+
+def test_empty_history_still_denies_an_unknown_rollback_target():
+    decision = policy.evaluate(
+        "rollback_deployment",
+        version="v41",
+        namespace="incidentpilot",
+        deployment_history=[],
+        current_version="v42",
+    )
+
+    assert decision.allowed is False
+    assert decision.rule_id == "rollback_history"

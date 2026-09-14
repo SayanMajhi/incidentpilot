@@ -65,8 +65,12 @@ class Handler(BaseHTTPRequestHandler):
             status, message = 200, "Readiness endpoint is healthy."
         else:
             status, message = workload_state()
+            # Keep pod logs focused on incident evidence. Kubernetes calls the
+            # readiness endpoint every few seconds; logging those successful
+            # probes can push the actual failure lines out of the adapter's
+            # bounded log tail before a presenter starts the incident run.
+            print(message, flush=True)
 
-        print(message, flush=True)
         body = (message + "\n").encode()
         self.send_response(status)
         self.send_header("Content-Type", "text/plain; charset=utf-8")

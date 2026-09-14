@@ -207,7 +207,7 @@ class KubernetesGateway:
         self._check_name("pod", pod)
         self._check_name("container", container)
         tail = max(1, min(int(tail_lines), self.settings.log_tail_lines))
-        return self._call(
+        result = self._call(
             "read pod logs",
             self._core.read_namespaced_pod_log,
             pod,
@@ -215,7 +215,14 @@ class KubernetesGateway:
             container=container,
             tail_lines=tail,
             timestamps=True,
-        ) or ""
+        )
+        # The Kubernetes client normally returns ``str``, but some Windows
+        # client/runtime combinations return the raw response as ``bytes``.
+        # Converting bytes with ``str(value)`` produces one giant ``b'...'``
+        # line, which hides individual evidence lines from the classifier.
+        if isinstance(result, (bytes, bytearray)):
+            return bytes(result).decode("utf-8", errors="replace")
+        return result or ""
 
     def probe_service(self, namespace: str, service: str) -> Tuple[bool, int, str]:
         """Send one HTTP GET to the Service through the API server proxy.

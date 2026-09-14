@@ -13,7 +13,8 @@ from backend.models import VerificationCheck, VerificationResult, VerificationSt
 class Verifier:
     """Determine recovery from fresh telemetry, health, and readiness evidence."""
 
-    # Compatibility defaults used by controller detection and older tests.
+    # Class-level defaults so callers can read the thresholds without an
+    # instance; ``__init__`` overrides them from the supplied settings.
     MAX_ERROR_RATE = get_settings().recovery_max_error_rate
     MAX_LATENCY_MS = get_settings().recovery_max_latency_ms
 
@@ -346,8 +347,11 @@ class Verifier:
             if key in {"error_rate", "latency_ms"}
         )
         mixed_samples = bool(sample_passes) and any(sample_passes) and not all(sample_passes)
+        # Readiness is deliberately excluded: a workload can run every desired
+        # replica and still serve a total outage, so replica readiness alone is
+        # not evidence that anything recovered.
         meaningful_pass = any(
-            check.passed and check.name in {"error_rate_slo", "latency_slo", "health_endpoint", "readiness"}
+            check.passed and check.name in {"error_rate_slo", "latency_slo", "health_endpoint"}
             for check in required
         )
         if improvement or mixed_samples or meaningful_pass:

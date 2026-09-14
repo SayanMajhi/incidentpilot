@@ -39,6 +39,10 @@ interface RequestOptions extends RequestInit {
 async function request<T>(baseUrl: string, endpoint: string, options: RequestOptions = {}): Promise<T> {
   const { timeoutMs = DEFAULT_TIMEOUT_MS, signal: callerSignal, ...init } = options;
 
+  if (callerSignal?.aborted) {
+    throw new ApiError('The IncidentPilot API request was cancelled.');
+  }
+
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
   const abortFromCaller = () => controller.abort();

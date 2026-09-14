@@ -18,12 +18,10 @@ const SIMULATION_STEPS = [
   { index: 3, status: 'Executing remediation with safety policy…', isFailed: false, isSuccess: false },
   { index: 4, status: 'Verifying recovery: Telemetry still unhealthy (Verification Failed ✕)', isFailed: true, isSuccess: false },
   { index: 5, status: 'Adapting: Re-investigating with failure evidence ↻', isFailed: false, isSuccess: false },
-  // Second Loop
   { index: 1, status: 'Investigating deeper: Resource saturation under load detected…', isFailed: false, isSuccess: false },
   { index: 2, status: 'Deciding new strategy: Scale service to 3 replicas…', isFailed: false, isSuccess: false },
   { index: 3, status: 'Executing safe scale-out remediation…', isFailed: false, isSuccess: false },
-  { index: 4, status: 'Verifying recovery: Metrics healthy & latency recovered (Passed ✓)', isFailed: false, isSuccess: false },
-  // Final Success Step:
+  { index: 4, status: 'Verifying recovery: Metrics healthy & latency recovered (Passed ✓)', isFailed: false, isSuccess: true },
   { index: 6, status: 'Incident Recovered — Autonomous resolution successful! ✓', isFailed: false, isSuccess: true },
 ];
 

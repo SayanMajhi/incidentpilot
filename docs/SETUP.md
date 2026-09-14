@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Python 3.11 or 3.12
-- Node.js 20 or newer and npm
+- Node.js 22 or newer and npm
 - Optional: Docker for the containerized simulator
 - Optional: Docker, kind, and kubectl for the local Kubernetes demo
 
@@ -89,6 +89,7 @@ Open:
 
 - dashboard: [http://127.0.0.1:3000/dashboard](http://127.0.0.1:3000/dashboard)
 - API health: [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
+- observed service: [http://127.0.0.1:8000/service/health](http://127.0.0.1:8000/service/health)
 - API schema: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 
 The documented Uvicorn target is `backend.api.app:app`. Use a single Uvicorn
@@ -127,6 +128,8 @@ docker compose up --build
 
 Open [http://localhost:3000](http://localhost:3000). The browser uses the
 Nginx `/api` proxy, while port 8000 remains published for direct API access.
+The frontend image is the unprivileged Nginx build and listens on 8080 inside
+the container; Compose publishes it as 3000.
 
 Stop the services with `docker compose down`. Simulator state disappears when
 the backend container stops; there is no volume because state is deliberately
@@ -166,7 +169,8 @@ Do not enable Kubernetes mode against an unreviewed or production context.
 - If port 8000 is busy, stop the process you started there or use another port
   and update the dashboard API target.
 - If the dashboard is disconnected, open `/health` and `/status` directly and
-  confirm `VITE_API_BASE_URL` points to that API origin.
+  confirm `VITE_API_BASE_URL` points to that API origin. `/health` reports the
+  API itself; `/service/health` reports the service it is watching.
 - If settings validation fails, compare `.env` with `.env.example`; replica
   bounds may narrow but never exceed 1–3.
 - If Docker commands cannot connect, start Docker Desktop/Engine before

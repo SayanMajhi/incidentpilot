@@ -34,6 +34,7 @@ Deployment is never touched.
 import copy
 import re
 import statistics
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -96,8 +97,10 @@ class KubernetesInfrastructure(Infrastructure):
                     "The gateway must be configured with the adapter's own settings."
                 )
         self._gateway = gateway
+        self._snapshot_lock = threading.Lock()
         self._last_metrics: Dict[str, Any] | None = None
         self._last_metrics_at = 0.0
+        self._last_metrics_owner: int | None = None
 
     @property
     def gateway(self) -> KubernetesGateway:
@@ -248,22 +251,39 @@ class KubernetesInfrastructure(Infrastructure):
             "probe_samples": len(samples),
             "source": "kubernetes_service_probe",
         }
-        # ``observe`` and ``verify`` request metrics immediately followed by
-        # health. Reuse that exact probe batch so one logical snapshot cannot
-        # disagree with itself or double Kubernetes traffic.
-        self._last_metrics = dict(result)
-        self._last_metrics_at = time.monotonic()
+        # ``observe`` and ``verify`` read metrics and then health back to
+        # back; reusing the same probe batch keeps one snapshot self-consistent.
+        with self._snapshot_lock:
+            self._last_metrics = dict(result)
+            self._last_metrics_at = time.monotonic()
+            self._last_metrics_owner = threading.get_ident()
         return result
 
     def check_health(self) -> Dict[str, Any]:
-        if self._last_metrics is not None and time.monotonic() - self._last_metrics_at <= 1.0:
-            metrics = self._last_metrics
-            self._last_metrics = None
-        else:
+        metrics = self._take_recent_metrics()
+        if metrics is None:
             metrics = self.get_metrics()
-            self._last_metrics = None
+            self._take_recent_metrics()
         status = metrics["status"]
         return {"status": status, "is_healthy": status == "healthy"}
+
+    def _take_recent_metrics(self) -> Dict[str, Any] | None:
+        """Consume this thread's own probe batch if it is still fresh.
+
+        The adapter is process-wide while ``GET /status`` and the controller's
+        verification loop run on different threads, so a snapshot is only
+        reused by the thread that produced it. Anything else re-probes.
+        """
+        with self._snapshot_lock:
+            fresh = (
+                self._last_metrics is not None
+                and self._last_metrics_owner == threading.get_ident()
+                and time.monotonic() - self._last_metrics_at <= 1.0
+            )
+            metrics = self._last_metrics if fresh else None
+            if self._last_metrics_owner == threading.get_ident():
+                self._last_metrics = None
+            return metrics
 
     def get_current_version(self) -> str:
         deployment = self._deployment()
@@ -463,6 +483,17 @@ class KubernetesInfrastructure(Infrastructure):
                 level = "ERROR" if any(word in message.lower() for word in _LOG_ERROR_WORDS) else "INFO"
                 entries.append({"timestamp": timestamp, "level": level, "message": message})
 
+        # Undated container-state entries carry the strongest failure
+        # evidence (CrashLoopBackOff, ImagePullBackOff), so they are kept
+        # ahead of routine dated lines rather than truncated away.
+        severity = {"ERROR": 0, "WARNING": 1, "INFO": 2}
+        entries.sort(
+            key=lambda entry: (
+                severity.get(entry["level"], 3),
+                entry["timestamp"] or "",
+            )
+        )
+        entries = entries[: _MAX_LOG_ENTRIES - 1]
         entries.sort(key=lambda entry: entry["timestamp"] or "")
         summary = {
             "timestamp": _now(),
@@ -472,7 +503,7 @@ class KubernetesInfrastructure(Infrastructure):
             # service metrics from turning it into false deployment evidence.
             "message": f"Workload {name}: {ready}/{desired} replicas ready.",
         }
-        return [summary] + entries[-(_MAX_LOG_ENTRIES - 1):]
+        return [summary] + entries
 
     def wait_for_reconciliation(self, action_result: Dict[str, Any]) -> Dict[str, Any] | None:
         """Wait for a requested Deployment change to reach ready state.
@@ -489,6 +520,7 @@ class KubernetesInfrastructure(Infrastructure):
 
         expected_generation = action_result.get("generation")
         expected_version = action_result.get("current_version")
+        expected_replicas = action_result.get("expected_replicas")
         deadline = time.monotonic() + self.settings.rollout_timeout_seconds
         last = {}
 
@@ -511,6 +543,10 @@ class KubernetesInfrastructure(Infrastructure):
             updated_ready = updated is None or int(updated) >= desired
             available_ready = available is None or int(available) >= desired
             version_matches = expected_version is None or version == expected_version
+            # On a scale-down the old, larger readyReplicas still satisfies
+            # ``ready >= desired``, so require spec.replicas to have caught up
+            # with what was requested before trusting the rest of the status.
+            replicas_applied = expected_replicas is None or desired == expected_replicas
 
             last = {
                 "version": version,
@@ -524,6 +560,7 @@ class KubernetesInfrastructure(Infrastructure):
             if (
                 generation_observed
                 and version_matches
+                and replicas_applied
                 and ready >= desired
                 and updated_ready
                 and available_ready
@@ -652,7 +689,7 @@ class KubernetesInfrastructure(Infrastructure):
         self._require_managed(deployment)
         previous = int(_get(deployment, "spec", "replicas", default=1))
 
-        self.gateway.scale_deployment(
+        scaled = self.gateway.scale_deployment(
             self.settings.namespace,
             self.settings.deployment,
             replicas,
@@ -662,6 +699,8 @@ class KubernetesInfrastructure(Infrastructure):
             "action": "scale_service",
             "success": True,
             "status": "success",
+            "generation": _get(scaled, "metadata", "generation"),
+            "expected_replicas": replicas,
             "message": (
                 f"Scaled deployment/{self.settings.deployment} from {previous} to "
                 f"{replicas} replica(s). This reports only that the scaling request "

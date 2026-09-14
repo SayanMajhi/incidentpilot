@@ -70,8 +70,6 @@ UNDETERMINED = "undetermined"
 # Causal hypotheses, most specific first. Specific causal evidence (a named
 # release, an exhausted pool) outranks generic symptoms (timeouts), because a
 # generic symptom is also what every specific cause looks like from outside.
-# The order ranks explanations of the evidence; it is not a sequence of
-# actions to try.
 _HYPOTHESES = (
     {
         "cause": DEPLOYMENT_REGRESSION,
@@ -146,8 +144,6 @@ def _classify_log_line(
     failure signal, or a named current version plus failure wording on that
     same line.  Elevated metrics alone must not turn an otherwise neutral
     workload summary such as "running v41" into a deployment regression.
-    This deliberately avoids fragile heuristics like "deployment history has
-    more than one entry".
     """
     text = message.lower()
 
@@ -281,10 +277,8 @@ def _find_previous_version(
          get_deployment_history()): the most recent recorded entry is
          the last known-good version, i.e. the previous version.
 
-    Never guesses a target when there isn't one to find - if history
-    is empty, or current_version is the oldest (or only) entry, this
-    returns None so the caller can escalate instead of inventing a
-    rollback target.
+    Returns None when history is empty or current_version is the oldest
+    (or only) entry, so the caller escalates rather than inventing a target.
     """
     if not deployment_history:
         return None

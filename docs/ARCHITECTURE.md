@@ -8,7 +8,7 @@ IncidentPilot has four layers with deliberately narrow responsibilities:
 Dashboard
   └─ reads public API state and submits commands
        └─ FastAPI routes
-            └─ RuntimeManager
+            └─ IncidentRuntime
                  ├─ owns the active/latest run, scenario mutations, lock, and revision
                  └─ starts one IncidentController worker
                       ├─ DecisionEngine (optional LLM proposal is advisory)
@@ -78,7 +78,7 @@ runtime revision, so browser reloads do not invent or lose progress.
 
 ## Runtime and concurrency
 
-`RuntimeManager` serializes run lifecycle and simulator mutations with one
+`IncidentRuntime` serializes run lifecycle and simulator mutations with one
 lock. Starting a run reserves the sole worker and returns HTTP 202 immediately.
 While it is active, another run, scenario injection, or reset receives HTTP
 409. Reads remain available. This prevents a second client from changing the
@@ -87,6 +87,12 @@ verification.
 
 State is intentionally process-local. Multiple Uvicorn workers would each
 have independent state, so the demo must run with the default single worker.
+
+The adapter in use is resolved per request through
+`backend.infrastructure.get_infrastructure()`. `use_infrastructure()` is the
+single supported override, used by the tests and the Kubernetes dry run to
+drive the whole API against a different adapter without mutating process
+configuration.
 
 ## Decision and adaptation
 
@@ -98,8 +104,13 @@ supports it.
 
 When enabled, Qwen/Hugging Face supplies only a proposal. Its output must match
 a strict schema, has no tool handle, and is overruled when inconsistent with
-deterministic evidence. Execution authority always remains with the
-deterministic policy.
+deterministic evidence. The model proposes an action, never a target: an
+agreed `scale_service` still executes the replica count derived from measured
+utilization, and an agreed `rollback_deployment` still targets the version
+found in deployment history. The corrected target and the original proposal
+are both recorded on the decision. Execution authority always remains with the
+deterministic policy, and the hosted call is bounded by
+`HF_TIMEOUT_SECONDS`.
 
 ## Safety model
 
@@ -125,6 +136,12 @@ a separate phase that obtains fresh telemetry and readiness state after any
 reconciliation wait. It records all sample summaries, before/after deltas,
 and named checks for error rate, latency, health, readiness, and sustained
 samples. The result distinguishes `recovered`, `partial`, and `failed`.
+
+Readiness on its own never counts as evidence of recovery: a workload can run
+every desired replica and still serve a total outage. Where detection and
+verification disagree - metrics inside the incident boundary but recovery not
+yet sustained - the controller re-observes, but each recheck spends attempt
+budget, so an unconfirmable recovery escalates instead of polling forever.
 
 Expected infrastructure exceptions are converted to timeline events and
 attempt outcomes. The controller may re-observe within its remaining budget;

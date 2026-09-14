@@ -11,7 +11,8 @@ made on first use, so importing the backend cannot fail just because a
 cluster is not running.
 """
 
-from typing import Optional
+from contextlib import contextmanager
+from typing import Iterator, Optional
 
 from pydantic import ValidationError
 
@@ -24,6 +25,7 @@ SUPPORTED_ENVIRONMENTS = (SIMULATOR, KUBERNETES)
 DEFAULT_ENVIRONMENT = SIMULATOR
 
 _cached: Optional[Infrastructure] = None
+_override: Optional[Infrastructure] = None
 
 
 def selected_environment() -> str:
@@ -59,8 +61,10 @@ def create_infrastructure(environment: Optional[str] = None) -> Infrastructure:
 
 
 def get_infrastructure() -> Infrastructure:
-    """Return the process-wide adapter for the configured environment."""
+    """Return the adapter the API and controller should use right now."""
     global _cached
+    if _override is not None:
+        return _override
     if _cached is None:
         _cached = create_infrastructure()
     return _cached
@@ -70,3 +74,20 @@ def reset_infrastructure_cache() -> None:
     """Forget the cached adapter so the next call re-reads configuration."""
     global _cached
     _cached = None
+
+
+@contextmanager
+def use_infrastructure(adapter: Infrastructure) -> Iterator[Infrastructure]:
+    """Run a block against ``adapter`` instead of the configured environment.
+
+    This is the single supported injection point. Tests and the Kubernetes
+    dry-run script use it to drive the whole API against a different adapter
+    without mutating process configuration.
+    """
+    global _override
+    previous = _override
+    _override = adapter
+    try:
+        yield adapter
+    finally:
+        _override = previous

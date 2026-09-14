@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from backend.agent.controller import IncidentController
 from backend.agent.decision import DecisionEngine
-from backend.simulator import service
+from backend.simulator.environment import simulator
 from backend.tools import remediation
 
 
@@ -19,12 +19,12 @@ def make_controller() -> IncidentController:
 
 
 def setup_function():
-    service.simulate_recover()
+    simulator.reset()
     remediation.reset_replicas()
 
 
 def teardown_function():
-    service.simulate_recover()
+    simulator.reset()
     remediation.reset_replicas()
 
 
@@ -42,7 +42,7 @@ def test_healthy_run_is_no_incident_and_never_enters_mutating_phases():
 
 
 def test_adaptive_run_records_real_failed_verification_replan_and_recovery():
-    service.simulate_adaptive_incident()
+    simulator.inject_adaptive_incident()
     result = make_controller().run_incident()
 
     assert result["status"] == "resolved"
@@ -69,7 +69,7 @@ def test_adaptive_run_records_real_failed_verification_replan_and_recovery():
 
 
 def test_unknown_action_is_recorded_as_blocked_and_never_executed():
-    service.simulate_outage()
+    simulator.inject_outage()
     controller = make_controller()
     unsafe = {
         "action": "delete_database",

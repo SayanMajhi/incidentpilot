@@ -290,7 +290,6 @@ export interface IncidentStatusResponse {
   service: ServiceState;
   scenario: ScenarioId | string;
   environment: RuntimeEnvironment;
-  replicas?: number;
   agent: AgentRunState;
   latest_incident: IncidentRun | null;
   diagnostics: {

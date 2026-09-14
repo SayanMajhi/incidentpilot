@@ -9,16 +9,17 @@ data/values, not just that the functions run without raising.
 
 import pytest
 
-from backend.simulator import service
+from backend.simulator.environment import simulator
+from tests.helpers import reset_simulator
 from backend.tools import diagnostics
 
 
 @pytest.fixture(autouse=True)
 def reset_state():
     """Reset the simulator to its initial healthy state before/after each test."""
-    service.state = service._initial_state()
+    reset_simulator()
     yield
-    service.state = service._initial_state()
+    reset_simulator()
 
 
 # ---------------------------------------------------------------------------
@@ -39,7 +40,7 @@ def test_get_metrics_healthy():
 
 def test_get_metrics_outage():
     """get_metrics() should reflect abnormal metrics during an outage."""
-    service.simulate_outage()
+    simulator.inject_outage()
 
     metrics = diagnostics.get_metrics()
     assert metrics["status"] == "down"
@@ -60,7 +61,7 @@ def test_check_health_healthy():
 
 def test_check_health_outage():
     """check_health() should report the service as unhealthy during an outage."""
-    service.simulate_outage()
+    simulator.inject_outage()
 
     health = diagnostics.check_health()
     assert health["status"] == "down"
@@ -69,8 +70,8 @@ def test_check_health_outage():
 
 def test_check_health_after_recovery():
     """check_health() should report healthy again after recovery."""
-    service.simulate_outage()
-    service.simulate_recover()
+    simulator.inject_outage()
+    simulator.reset()
 
     health = diagnostics.check_health()
     assert health["status"] == "healthy"
@@ -88,7 +89,7 @@ def test_get_current_version_initial():
 
 def test_get_current_version_unchanged_during_outage():
     """An outage should not change the reported deployment version."""
-    service.simulate_outage()
+    simulator.inject_outage()
     assert diagnostics.get_current_version() == "v41"
 
 
@@ -109,7 +110,7 @@ def test_query_logs_healthy_returns_normal_logs():
 
 def test_query_logs_outage_returns_error_logs():
     """query_logs() should return realistic error logs during an outage."""
-    service.simulate_outage()
+    simulator.inject_outage()
 
     logs = diagnostics.query_logs()
 
@@ -127,7 +128,7 @@ def test_query_logs_is_deterministic():
     second_call = diagnostics.query_logs()
     assert first_call == second_call
 
-    service.simulate_outage()
+    simulator.inject_outage()
     third_call = diagnostics.query_logs()
     fourth_call = diagnostics.query_logs()
     assert third_call == fourth_call
@@ -157,7 +158,7 @@ def test_query_logs_healthy_state_returns_healthy_logs():
 def test_query_logs_bad_deployment_returns_deployment_evidence():
     """query_logs() should return deployment-specific evidence once the
     bad-deployment scenario is active."""
-    service.simulate_bad_deployment()
+    simulator.inject_bad_deployment()
 
     logs = diagnostics.query_logs()
 
@@ -172,7 +173,7 @@ def test_query_logs_bad_deployment_returns_deployment_evidence():
 def test_query_logs_bad_deployment_contains_v42():
     """Bad-deployment logs must explicitly reference the deployed
     version, v42, so an agent can tie the incident to that deployment."""
-    service.simulate_bad_deployment()
+    simulator.inject_bad_deployment()
 
     logs = diagnostics.query_logs()
     assert any("v42" in entry["message"] for entry in logs)
@@ -181,7 +182,7 @@ def test_query_logs_bad_deployment_contains_v42():
 def test_query_logs_bad_deployment_contains_failure_evidence():
     """Bad-deployment logs must contain ERROR-level entries describing
     application failures and HTTP 503s caused by the deployment."""
-    service.simulate_bad_deployment()
+    simulator.inject_bad_deployment()
 
     logs = diagnostics.query_logs()
     error_logs = [entry for entry in logs if entry["level"] == "ERROR"]
@@ -194,7 +195,7 @@ def test_query_logs_bad_deployment_contains_failure_evidence():
 def test_query_logs_generic_outage_is_unaffected_by_bad_deployment_logs():
     """A generic outage (not the bad-deployment scenario) must not be
     mistaken for the bad deployment: it should not mention v42."""
-    service.simulate_outage()
+    simulator.inject_outage()
 
     logs = diagnostics.query_logs()
     messages = " ".join(entry["message"] for entry in logs).lower()

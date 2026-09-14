@@ -4,7 +4,9 @@ import pytest
 
 from backend.agent.controller import controller, IncidentController
 from backend.agent.decision import DecisionEngine
-from backend.simulator import service
+from backend.infrastructure import Infrastructure
+from backend.shared import slo
+from backend.simulator.environment import simulator
 from backend.tools import remediation
 
 
@@ -13,14 +15,14 @@ def reset_simulator_state():
     """Ensure every test starts and ends on the same deterministic,
     healthy baseline, since backend/simulator/remediation state is shared
     module-level state."""
-    service.simulate_recover()
-    service.state.current_version = service.INITIAL_VERSION
+    simulator.reset()
+    simulator.state.current_version = slo.INITIAL_VERSION
     remediation.reset_replicas()
 
     yield
 
-    service.simulate_recover()
-    service.state.current_version = service.INITIAL_VERSION
+    simulator.reset()
+    simulator.state.current_version = slo.INITIAL_VERSION
     remediation.reset_replicas()
 
 
@@ -89,7 +91,7 @@ def test_valid_rollback_reaches_remediation_layer():
     """A valid rollback_deployment action, once approved by
     SafetyPolicy, must actually reach tools.remediation."""
 
-    service.simulate_bad_deployment()
+    simulator.inject_bad_deployment()
 
     decision = {
         "action": "rollback_deployment",
@@ -116,7 +118,7 @@ def test_verification_after_successful_rollback_shows_recovery():
     incident, fresh metrics collected by verify() must show a healthy
     service, and the verifier must report recovered=True."""
 
-    service.simulate_bad_deployment()
+    simulator.inject_bad_deployment()
 
     decision = {
         "action": "rollback_deployment",
@@ -139,7 +141,7 @@ def test_run_incident_resolves_bad_deployment_end_to_end():
     end-to-end, and confirm the incident is actually resolved - not
     merely that some action was taken."""
 
-    service.simulate_bad_deployment()
+    simulator.inject_bad_deployment()
 
     result = controller.run_incident()
 
@@ -159,7 +161,7 @@ def test_action_success_does_not_imply_incident_recovery():
 
     # An outage NOT tied to the deployed version - scaling replicas
     # does not touch status/error_rate/latency, so it cannot fix this.
-    service.simulate_outage()
+    simulator.inject_outage()
 
     decision = {
         "action": "scale_service",
@@ -180,7 +182,7 @@ def test_action_success_does_not_imply_incident_recovery():
 def test_run_incident_escalates_when_action_never_fixes_incident():
     """Repeated command success cannot hide exhausted verification attempts."""
 
-    service.simulate_outage()
+    simulator.inject_outage()
 
     forced_decision = {
         "action": "scale_service",
@@ -208,7 +210,7 @@ def test_run_incident_status_is_blocked_for_unsafe_decision():
         "reason": "Forced unsafe decision for blocked-status test",
         "confidence": 1.0,
     }
-    service.simulate_outage()
+    simulator.inject_outage()
 
     with patch.object(controller, "decide", return_value=unsafe_decision):
         result = controller.run_incident()
@@ -244,7 +246,7 @@ def test_run_incident_retries_with_new_decision_after_failed_verification():
     # Bad deployment: service is down and tied to the current (v42)
     # version. scale_service only changes replica count - it can never
     # touch status/error_rate/latency, so it cannot fix this by itself.
-    service.simulate_bad_deployment()
+    simulator.inject_bad_deployment()
 
     first_decision = {
         "action": "scale_service",
@@ -304,7 +306,7 @@ def test_run_incident_stops_after_max_attempts_without_looping_forever():
 
     # An outage NOT tied to the deployed version - scale_service can
     # never fix this, so verification will fail on every attempt.
-    service.simulate_outage()
+    simulator.inject_outage()
 
     forced_decision = {
         "action": "scale_service",
@@ -376,7 +378,7 @@ def test_run_incident_unsafe_action_stays_blocked_across_the_loop():
         "reason": "Forced unsafe decision for blocked-in-loop test",
         "confidence": 1.0,
     }
-    service.simulate_outage()
+    simulator.inject_outage()
 
     with patch.object(
             controller,
@@ -412,7 +414,7 @@ def test_adaptive_incident_changes_strategy_after_failed_verification():
     """The agent must adapt after a restart fails verification:
     first restart, then scale after new resource evidence appears."""
 
-    service.simulate_adaptive_incident()
+    simulator.inject_adaptive_incident()
 
     test_controller = IncidentController(
         use_llm=False,
@@ -433,3 +435,76 @@ def test_adaptive_incident_changes_strategy_after_failed_verification():
     assert second_attempt["decision"]["action"] == "scale_service"
     assert second_attempt["decision"]["target"] == 3
     assert second_attempt["verification"].recovered is True
+
+
+class NeverReadyInfrastructure(Infrastructure):
+    """Recovers its metrics after a restart but never reports ready replicas.
+
+    Detection reads metrics only, so it reports a healthy service, while
+    verification also requires readiness and keeps failing. The loop has to
+    resolve that disagreement within its own budget.
+    """
+
+    name = "never_ready"
+
+    def __init__(self):
+        self.restarted = False
+        self.observations = 0
+
+    def describe(self):
+        return {"environment": self.name}
+
+    def get_metrics(self):
+        self.observations += 1
+        if self.restarted:
+            return {"status": "healthy", "error_rate": 0.0, "latency_ms": 20}
+        return {"status": "down", "error_rate": 0.5, "latency_ms": 900}
+
+    def check_health(self):
+        healthy = self.restarted
+        return {"status": "healthy" if healthy else "down", "is_healthy": healthy}
+
+    def get_current_version(self):
+        return "v1"
+
+    def get_capacity(self):
+        return {"replicas": 3, "ready_replicas": 1, "utilization": None}
+
+    def query_logs(self):
+        return [{"timestamp": "t", "level": "ERROR", "message": "upstream request timeout"}]
+
+    def get_deployment_history(self):
+        return [{"version": "v1", "order": 1, "timestamp": "t", "status": "current"}]
+
+    def restart_service(self):
+        self.restarted = True
+        return {"action": "restart_service", "success": True, "status": "completed", "message": "ok"}
+
+    def rollback_deployment(self, version):
+        raise AssertionError("not expected")
+
+    def scale_service(self, replicas):
+        raise AssertionError("not expected")
+
+
+def test_unconfirmable_recovery_escalates_instead_of_looping_forever():
+    infrastructure = NeverReadyInfrastructure()
+    agent = IncidentController(
+        use_llm=False,
+        deterministic_engine=DecisionEngine(),
+        infrastructure=infrastructure,
+        verification_interval_seconds=0,
+    )
+
+    result = agent.run_incident()
+
+    assert result["status"] == "escalated"
+    assert result["reason"]
+    # The bound is the attempt budget, so observation cannot run unbounded.
+    assert infrastructure.observations <= (
+        agent.MAX_ATTEMPTS * (agent.VERIFICATION_SAMPLES + 2) * 2
+    )
+    assert any(
+        event["event_type"] == "verification_inconclusive"
+        for event in result["timeline"]
+    )

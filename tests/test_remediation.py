@@ -11,7 +11,9 @@ These tests verify:
 
 import pytest
 
-from backend.simulator import service
+from backend.shared import slo
+from backend.simulator.environment import simulator
+from tests.helpers import reset_simulator
 from backend.tools import diagnostics, remediation
 
 # Words that would imply the overall incident has been declared fixed.
@@ -30,10 +32,10 @@ def _assert_no_resolution_claim(result: dict) -> None:
 @pytest.fixture(autouse=True)
 def reset_state():
     """Reset the simulator and remediation module state before/after each test."""
-    service.state = service._initial_state()
+    reset_simulator()
     remediation.reset_replicas()
     yield
-    service.state = service._initial_state()
+    reset_simulator()
     remediation.reset_replicas()
 
 
@@ -52,7 +54,7 @@ def test_restart_service_reports_success():
 
 def test_restart_service_has_verifiable_effect_during_outage():
     """restart_service() should have a concrete, verifiable effect on metrics."""
-    service.simulate_outage()
+    simulator.inject_outage()
     assert diagnostics.check_health()["is_healthy"] is False
 
     remediation.restart_service()
@@ -158,25 +160,25 @@ def test_restart_does_not_heal_an_incident_caused_by_the_deployed_version():
     deployment is still the running version, the cause survives the restart,
     so the service must stay unhealthy - otherwise verification would
     confirm a "recovery" with the broken version still deployed."""
-    service.simulate_bad_deployment()
+    simulator.inject_bad_deployment()
 
     result = remediation.restart_service()
 
     assert result["success"] is True
     assert result["status"] == "completed"
-    assert service.state.status == "down"
-    assert service.state.current_version == service.BAD_DEPLOYMENT_VERSION
+    assert simulator.state.status == "down"
+    assert simulator.state.current_version == slo.BAD_DEPLOYMENT_VERSION
     assert "still deployed" in result["message"]
 
 
 def test_restart_clears_a_transient_outage():
-    service.simulate_outage()
+    simulator.inject_outage()
 
     result = remediation.restart_service()
 
     assert result["success"] is True
-    assert service.state.status == "healthy"
-    assert service.state.error_rate == service.HEALTHY_ERROR_RATE
+    assert simulator.state.status == "healthy"
+    assert simulator.state.error_rate == slo.HEALTHY_ERROR_RATE
 
 
 def test_reset_replicas_restores_the_baseline():

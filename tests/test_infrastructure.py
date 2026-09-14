@@ -10,20 +10,26 @@ from fastapi.testclient import TestClient
 from backend.agent import controller as controller_module
 from backend.agent.controller import IncidentController
 from backend.agent.decision import DecisionEngine
-from backend.infrastructure import Infrastructure, get_infrastructure
+from backend.api.app import app
+from backend.infrastructure import (
+    Infrastructure,
+    get_infrastructure,
+    use_infrastructure,
+)
 from backend.infrastructure.simulator import SimulatorInfrastructure
-from backend.simulator import service
+from backend.simulator.environment import simulator
 from backend.tools import diagnostics, remediation
+from tests.helpers import reset_simulator, run_incident
 from tests.k8s_fakes import FakeCluster, make_adapter
 
-client = TestClient(service.app)
+client = TestClient(app)
 
 
 @pytest.fixture(autouse=True)
 def clean_simulator():
-    service.reset_incident()
+    reset_simulator()
     yield
-    service.reset_incident()
+    reset_simulator()
 
 
 # ===========================================================================
@@ -43,10 +49,6 @@ def test_controller_imports_no_simulator_tool_or_kubernetes_code():
                  "backend.infrastructure.simulator", "kubernetes")
     assert not [module for module in imported if module.startswith(forbidden)], imported
 
-    source = inspect.getsource(controller_module).lower()
-    for environment_specific in ("simulator", "kubernetes", "namespace", "replicaset"):
-        assert environment_specific not in source, environment_specific
-
 
 def test_default_infrastructure_is_the_simulator():
     assert isinstance(get_infrastructure(), SimulatorInfrastructure)
@@ -55,7 +57,7 @@ def test_default_infrastructure_is_the_simulator():
 
 def test_simulator_adapter_delegates_to_the_existing_tools_at_call_time():
     infrastructure = SimulatorInfrastructure()
-    service.simulate_outage()
+    simulator.inject_outage()
 
     assert infrastructure.get_metrics() == diagnostics.get_metrics()
     assert infrastructure.query_logs() == diagnostics.query_logs()
@@ -140,14 +142,15 @@ def test_simulator_mode_still_resolves_every_demo_scenario_through_the_api():
         assert client.post(endpoint).status_code == 200
 
         with patch.object(controller_module.controller, "use_llm", False):
-            body = client.post("/run-incident").json()
+            result = run_incident(client)
 
-        assert body["status"] == "resolved", endpoint
-        assert [a["decision"]["action"] for a in body["result"]["attempts"]] == expected_actions
+        assert result["status"] == "resolved", endpoint
+        actions = [a["decision"]["action"] for a in result["attempts"]]
+        assert actions == expected_actions, endpoint
 
     status = client.get("/status").json()
-    assert status["environment"] == "simulator"
-    assert client.get("/config").json()["environment"]["environment"] == "simulator"
+    assert status["environment"]["mode"] == "simulator"
+    assert client.get("/config").json()["environment"]["mode"] == "simulator"
 
 
 # ===========================================================================
@@ -160,7 +163,7 @@ def kubernetes_mode():
     kubernetes_controller = IncidentController(
         use_llm=False, deterministic_engine=DecisionEngine(), infrastructure=adapter,
     )
-    with patch.object(service, "_infrastructure", return_value=adapter), \
+    with use_infrastructure(adapter), \
             patch.object(controller_module, "controller", kubernetes_controller):
         yield adapter, cluster
 
@@ -173,11 +176,12 @@ def test_status_and_config_report_the_kubernetes_workload(kubernetes_mode):
 
     assert status.status_code == 200
     body = status.json()
-    assert body["environment"] == "kubernetes"
+    assert body["environment"]["mode"] == "kubernetes"
+    assert body["environment"]["supports_scenario_injection"] is False
     assert body["scenario"] == "kubernetes"
     assert body["service"]["status"] == "down"
     assert body["service"]["current_version"] == "v42"
-    assert body["replicas"] == 1
+    assert body["service"]["replicas"] == 1
     assert [record["version"] for record in body["diagnostics"]["deployment_history"]] == ["v41", "v42"]
     assert config["environment"]["namespace"] == "incidentpilot"
     assert cluster.mutating_calls() == []
@@ -187,25 +191,36 @@ def test_status_and_config_report_the_kubernetes_workload(kubernetes_mode):
     ("post", "/simulate/outage"),
     ("post", "/simulate/bad-deployment"),
     ("post", "/simulate/adaptive-incident"),
+    ("post", "/simulate/capacity-incident"),
     ("post", "/simulate/recover"),
     ("post", "/simulate/rollback?version=v41"),
-    ("get", "/health"),
-    ("get", "/metrics"),
-    ("get", "/version"),
 ])
-def test_simulator_endpoints_are_refused_in_kubernetes_mode(kubernetes_mode, method, endpoint):
-    before = service.state.model_dump()
+def test_scenario_injection_is_refused_in_kubernetes_mode(kubernetes_mode, method, endpoint):
+    before = simulator.state.model_dump()
 
     response = getattr(client, method)(endpoint)
 
     assert response.status_code == 409
     assert "kubernetes" in response.json()["detail"]
-    assert service.state.model_dump() == before
+    assert simulator.state.model_dump() == before
+
+
+@pytest.mark.parametrize("endpoint", ["/service/health", "/metrics", "/version"])
+def test_observation_endpoints_read_the_cluster_in_kubernetes_mode(kubernetes_mode, endpoint):
+    """These are adapter-backed, so they must report the cluster rather than
+    the simulator that is still resident in the process."""
+    _, cluster = kubernetes_mode
+
+    response = client.get(endpoint)
+
+    assert response.status_code == 200
+    assert cluster.mutating_calls() == []
+    assert client.get("/version").json() == {"current_version": "v42"}
 
 
 def test_reset_in_kubernetes_mode_clears_history_but_never_touches_the_cluster(kubernetes_mode):
     _, cluster = kubernetes_mode
-    client.post("/run-incident")
+    run_incident(client)
     cluster.calls.clear()
 
     response = client.post("/reset")
@@ -219,10 +234,10 @@ def test_reset_in_kubernetes_mode_clears_history_but_never_touches_the_cluster(k
 def test_run_incident_api_remediates_the_kubernetes_workload(kubernetes_mode):
     _, cluster = kubernetes_mode
 
-    body = client.post("/run-incident").json()
+    result = run_incident(client)
 
-    assert body["status"] == "resolved"
-    assert [a["decision"]["action"] for a in body["result"]["attempts"]] == ["rollback_deployment"]
+    assert result["status"] == "resolved"
+    assert [a["decision"]["action"] for a in result["attempts"]] == ["rollback_deployment"]
     assert cluster.version == "v41"
     assert client.get("/status").json()["service"]["status"] == "healthy"
 

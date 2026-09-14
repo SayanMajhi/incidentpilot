@@ -19,15 +19,18 @@ from backend.agent import decision as decision_module
 from backend.agent.controller import IncidentController
 from backend.agent.decision import DecisionEngine
 from backend.safety.policy import policy
-from backend.simulator import service
+from backend.shared import slo
+from backend.simulator import environment
+from backend.simulator.environment import simulator
+from tests.helpers import reset_simulator
 from backend.tools import diagnostics, remediation
 
 
 @pytest.fixture(autouse=True)
 def clean_simulator():
-    service.reset_incident()
+    reset_simulator()
     yield
-    service.reset_incident()
+    reset_simulator()
 
 
 def make_controller(**kwargs):
@@ -62,13 +65,13 @@ def force_first_decision(ctl, forced):
 # symptoms an agent can observe are always derived from those causes.
 # ---------------------------------------------------------------------------
 
-def _set_causes(*, transient=False, load=service.BASELINE_LOAD_UNITS, bad_version=False):
-    service.state._transient_fault = transient
-    service.state._load_units = load
+def _set_causes(*, transient=False, load=environment.BASELINE_LOAD_UNITS, bad_version=False):
+    simulator.state._transient_fault = transient
+    simulator.state._load_units = load
     if bad_version:
-        service.state.current_version = service.BAD_DEPLOYMENT_VERSION
-        service.state._deployment_regression = True
-    service._recompute_service_health()
+        simulator.state.current_version = slo.BAD_DEPLOYMENT_VERSION
+        simulator.state._deployment_regression = True
+    simulator.recompute()
 
 
 # ===========================================================================
@@ -76,7 +79,7 @@ def _set_causes(*, transient=False, load=service.BASELINE_LOAD_UNITS, bad_versio
 # ===========================================================================
 
 def test_verification_rejects_a_technically_successful_action():
-    service.simulate_adaptive_incident()
+    simulator.inject_adaptive_incident()
 
     result = make_controller().run_incident()
 
@@ -88,7 +91,7 @@ def test_verification_rejects_a_technically_successful_action():
     # The restart ran, but fresh post-action telemetry says it did not recover.
     assert first["verification"].recovered is False
     assert first["verification"].telemetry["metrics"]["status"] == "down"
-    assert first["verification"].telemetry["samples"] == IncidentController.VERIFICATION_SAMPLES
+    assert first["verification"].telemetry["samples"] == make_controller().VERIFICATION_SAMPLES
 
 
 # ===========================================================================
@@ -96,7 +99,7 @@ def test_verification_rejects_a_technically_successful_action():
 # ===========================================================================
 
 def test_failed_verification_causes_fresh_re_observation():
-    service.simulate_adaptive_incident()
+    simulator.inject_adaptive_incident()
     ctl = make_controller()
 
     with patch.object(ctl, "observe", wraps=ctl.observe) as observe:
@@ -129,7 +132,7 @@ def test_failed_verification_causes_fresh_re_observation():
 # ===========================================================================
 
 def test_failed_verification_causes_re_investigation_and_re_diagnosis():
-    service.simulate_adaptive_incident()
+    simulator.inject_adaptive_incident()
     ctl = make_controller()
 
     with patch.object(diagnostics, "query_logs", wraps=diagnostics.query_logs) as query_logs, \
@@ -164,11 +167,11 @@ def test_failed_verification_causes_re_investigation_and_re_diagnosis():
 # ===========================================================================
 
 def _world_capacity_shortfall():
-    service.simulate_adaptive_incident()  # hung workers + 2.5x demand on 1 replica
+    simulator.inject_adaptive_incident()  # hung workers + 2.5x demand on 1 replica
 
 
 def _world_hidden_bad_deployment():
-    service.simulate_adaptive_incident()
+    simulator.inject_adaptive_incident()
     _set_causes(transient=True, bad_version=True)
 
 
@@ -190,14 +193,14 @@ def test_second_decision_depends_on_newly_observed_evidence_not_on_a_fixed_seque
     results = {}
 
     for name, (build_world, _, _) in _WORLDS.items():
-        service.reset_incident()
+        reset_simulator()
         build_world()
         results[name] = make_controller().run_incident()
 
     # World where the restart "succeeds" but has no effect at all: the fresh
     # evidence is unchanged, so there is nothing new to justify any action.
-    service.reset_incident()
-    service.simulate_adaptive_incident()
+    reset_simulator()
+    simulator.inject_adaptive_incident()
     _set_causes(transient=True)
     no_effect = {
         "action": "restart_service",
@@ -260,12 +263,12 @@ def test_second_decision_depends_on_newly_observed_evidence_not_on_a_fixed_seque
 # ===========================================================================
 
 def test_adaptive_incident_recovers_with_complete_evidence_history():
-    service.simulate_adaptive_incident()
+    simulator.inject_adaptive_incident()
 
     result = make_controller().run_incident()
 
     assert result["status"] == "resolved"
-    assert service.state.status == "healthy"
+    assert simulator.state.status == "healthy"
     assert remediation.get_current_replicas() == 3
 
     first, second = result["evidence_history"]
@@ -293,7 +296,7 @@ def test_adaptation_is_order_independent():
     """If attempt 1 scales instead of restarting, the fresh evidence still
     shows hung workers, so the controller restarts next and recovers. The
     environment rewards removing causes, not a particular order."""
-    service.simulate_adaptive_incident()
+    simulator.inject_adaptive_incident()
     ctl = make_controller()
 
     forced = {"action": "scale_service", "target": 3, "reason": "forced", "confidence": 0.9}
@@ -308,7 +311,7 @@ def test_adaptation_is_order_independent():
 def test_insufficient_scaling_is_followed_by_a_larger_step_sized_from_fresh_telemetry():
     """The same action type may be proposed again, but only with a target the
     new utilization reading justifies - never as a blind repeat."""
-    service.simulate_adaptive_incident()
+    simulator.inject_adaptive_incident()
     _set_causes(transient=False, load=2.5)
     ctl = make_controller()
 
@@ -329,12 +332,12 @@ def test_engine_driven_loop_escalates_at_max_attempts():
     """Hung workers, a bad deployment and an 8x traffic surge (more than the
     3-replica safe maximum can absorb). Each attempt removes one cause the
     fresh evidence reveals, but the incident can never fully recover."""
-    service.simulate_adaptive_incident()
+    simulator.inject_adaptive_incident()
     _set_causes(transient=True, load=8.0, bad_version=True)
 
     result = make_controller().run_incident()
 
-    assert len(result["attempts"]) == IncidentController.MAX_ATTEMPTS == 3
+    assert len(result["attempts"]) == make_controller().MAX_ATTEMPTS == 3
     assert actions(result) == [
         ("restart_service", None),
         ("rollback_deployment", "v41"),
@@ -346,7 +349,7 @@ def test_engine_driven_loop_escalates_at_max_attempts():
 
 
 def test_lower_attempt_budget_is_honoured():
-    service.simulate_adaptive_incident()
+    simulator.inject_adaptive_incident()
     _set_causes(transient=True, load=8.0, bad_version=True)
     ctl = make_controller()
     ctl.MAX_ATTEMPTS = 2
@@ -364,7 +367,7 @@ def test_lower_attempt_budget_is_honoured():
 # ===========================================================================
 
 def test_unsupported_evidence_escalates_without_inventing_an_action():
-    service.simulate_outage()
+    simulator.inject_outage()
     unrecognised_logs = [
         {"timestamp": "t1", "level": "ERROR", "message": "Unexpected internal fault in billing module."},
     ]
@@ -387,7 +390,7 @@ def test_unsupported_evidence_escalates_without_inventing_an_action():
 
 
 def test_capacity_shortfall_beyond_safe_maximum_escalates():
-    service.simulate_adaptive_incident()
+    simulator.inject_adaptive_incident()
     _set_causes(transient=False, load=9.0)
     remediation.scale_service(3)
 
@@ -403,7 +406,7 @@ def test_capacity_shortfall_beyond_safe_maximum_escalates():
 # ===========================================================================
 
 def test_safety_policy_is_evaluated_before_every_executed_action():
-    service.simulate_adaptive_incident()
+    simulator.inject_adaptive_incident()
 
     call_order = []
     real_evaluate = policy.evaluate
@@ -442,7 +445,7 @@ def test_safety_policy_is_evaluated_before_every_executed_action():
 
 
 def test_unsafe_proposal_in_a_later_attempt_is_blocked_before_execution():
-    service.simulate_adaptive_incident()
+    simulator.inject_adaptive_incident()
     ctl = make_controller()
     real_decide = ctl.decide
     calls = {"n": 0}
@@ -484,7 +487,7 @@ class _FakeLLM:
 
 
 def test_llm_cannot_repeat_a_remediation_that_already_failed_verification():
-    service.simulate_adaptive_incident()
+    simulator.inject_adaptive_incident()
     _set_causes(transient=False, load=4.5)
     llm = _FakeLLM({"action": "scale_service", "target": 3, "reason": "model", "confidence": 0.8})
     ctl = make_controller(use_llm=True, llm_engine=llm)
@@ -509,7 +512,7 @@ def test_llm_cannot_repeat_a_remediation_that_already_failed_verification():
 def test_deterministic_loop_needs_no_llm_credentials(monkeypatch):
     monkeypatch.delenv("HF_TOKEN", raising=False)
     monkeypatch.delenv("HF_MODEL", raising=False)
-    service.simulate_adaptive_incident()
+    simulator.inject_adaptive_incident()
 
     result = make_controller(use_llm=False).run_incident()
 

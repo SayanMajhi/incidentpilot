@@ -11,6 +11,10 @@ RUN python -m pip install --no-cache-dir -r requirements.txt
 
 COPY backend ./backend
 
+RUN useradd --system --create-home --uid 10001 incidentpilot \
+    && chown -R incidentpilot:incidentpilot /app
+USER incidentpilot
+
 EXPOSE 8000
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=5 \

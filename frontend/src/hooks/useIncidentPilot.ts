@@ -74,6 +74,7 @@ export function useIncidentPilot(initialBaseUrl = api.DEFAULT_BASE_URL) {
   }, []);
 
   const syncTokenRef = useRef(0);
+  const syncRef = useRef<(url?: string, reportErrors?: boolean) => Promise<unknown>>(async () => null);
   const requestedRunRef = useRef<string | null>(null);
   useEffect(() => { requestedRunRef.current = requestedRunId; }, [requestedRunId]);
 
@@ -129,7 +130,7 @@ export function useIncidentPilot(initialBaseUrl = api.DEFAULT_BASE_URL) {
 
       setConnectionStatus('connected');
       setService(status.service);
-      setCurrentReplicas(status.replicas ?? status.service.replicas ?? 0);
+      setCurrentReplicas(status.service.replicas ?? 0);
       setActiveScenario(scenarioLabel(status.scenario));
       setEnvironment(status.environment || config.environment);
       setAgent(status.agent);
@@ -137,8 +138,8 @@ export function useIncidentPilot(initialBaseUrl = api.DEFAULT_BASE_URL) {
       setLastSyncTime(`Live API · revision ${status.revision} · ${new Date().toLocaleTimeString()}`);
       setOperationError(null);
 
-      // Never combine an attempt list with a status snapshot from a different
-      // runtime revision or incident. A subsequent one-second poll catches up.
+      // An attempt list and a status snapshot from different runtime
+      // revisions must never be combined; the next poll catches up.
       if (sameSnapshot(status, timeline)) {
         applyTimeline(timeline, status.scenario, status.agent, config);
       }
@@ -260,9 +261,21 @@ export function useIncidentPilot(initialBaseUrl = api.DEFAULT_BASE_URL) {
     return () => { active = false; };
   }, [backendUrl]);
 
+  // The interval is created once per backend URL, so it must read the current
+  // sync through a ref. Capturing sync directly would pin the poll to the
+  // configuration held at mount, which is the hardcoded fallback.
+  useEffect(() => { syncRef.current = sync; }, [sync]);
+
   useEffect(() => {
     void checkConnection(backendUrl);
-    const poll = window.setInterval(() => { void sync(backendUrl); }, POLL_INTERVAL_MS);
+    let inFlight = false;
+    const poll = window.setInterval(() => {
+      // A slow environment (a Kubernetes probe batch can take seconds) must
+      // not accumulate overlapping requests behind a one-second timer.
+      if (inFlight) return;
+      inFlight = true;
+      void syncRef.current(backendUrl).finally(() => { inFlight = false; });
+    }, POLL_INTERVAL_MS);
     return () => window.clearInterval(poll);
     // The initial connectivity probe should run only when the target changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps

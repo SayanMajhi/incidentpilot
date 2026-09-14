@@ -43,7 +43,7 @@ scenario name.
 React dashboard
       │  HTTP: health, config, status, timeline, commands
       ▼
-FastAPI routes ── RuntimeManager (one active run, revisioned state)
+FastAPI routes ── IncidentRuntime (one active run, revisioned state)
                          │
                          ▼
                   IncidentController
@@ -84,7 +84,7 @@ scale to 20 and proves that it is rejected without reaching infrastructure.
 
 ## Quick start
 
-Prerequisites: Python 3.11 or 3.12 and Node.js 20+.
+Prerequisites: Python 3.11 or 3.12 and Node.js 22+.
 
 ```powershell
 py -3.12 -m venv .venv
@@ -138,7 +138,7 @@ Exact telemetry and expected events are in [docs/DEMO.md](docs/DEMO.md).
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/health` | API liveness and selected environment status. |
+| `GET` | `/health` | API liveness and selected environment. Answers even when the target is unreachable. |
 | `GET` | `/service/health`, `/metrics`, `/version` | Read the selected target through its infrastructure adapter. |
 | `GET` | `/config` | Public thresholds, bounds, mode, and capabilities; never secrets. |
 | `GET` | `/status` | Current service observation and revisioned incident state. |
@@ -185,11 +185,14 @@ npm test
 npm run build
 ```
 
-Tests cover healthy/no-incident semantics, scenario mutation, detection,
-safety approval and rejection, fresh verification, partial recovery,
-evidence-driven replanning, retry exhaustion, structured errors, runtime
-locking, timeline ordering, API contracts, and Kubernetes restrictions. CI
-runs the backend suite plus frontend tests and production build.
+274 backend tests and 4 frontend tests cover healthy/no-incident semantics,
+scenario mutation, detection, safety approval and rejection, fresh
+verification, partial recovery, evidence-driven replanning, retry exhaustion,
+unconfirmable recovery, structured errors, runtime locking, timeline ordering,
+API contracts, and Kubernetes restrictions. The Kubernetes suite runs against
+an in-memory fake cluster and needs no cluster or client library; live-cluster
+tests are opt-in behind `RUN_K8S_INTEGRATION=1`. CI runs the backend suite plus
+frontend tests and the production build.
 
 ## Docker
 
@@ -201,7 +204,7 @@ docker compose up --build
 
 Open [http://localhost:3000](http://localhost:3000). The production Nginx
 container serves the single-page app and proxies `/api` to the backend. Both
-services have health checks. Compose uses in-memory simulator mode and does
+images run as a non-root user and have health checks. Compose uses in-memory simulator mode and does
 not mount the source tree or install dependencies on startup.
 
 ## Kubernetes

@@ -77,5 +77,24 @@ Assert-LastExitCode "Applying the $Scenario scenario patch"
 kubectl -n incidentpilot rollout status deployment/incidentpilot-demo --timeout=90s
 Assert-LastExitCode "Waiting for the $Scenario scenario rollout"
 
-kubectl -n incidentpilot get deployment,pods
+# Warm the workload endpoint before declaring the scenario ready. Kubernetes
+# may report a Pod ready just before its first application-level failure line
+# becomes visible through the pod-log API. Without this bounded warm-up, an
+# incident started immediately from the dashboard can see only a generic 503
+# and safely escalate because no causal evidence is available yet.
+$proxyPath = '/api/v1/namespaces/incidentpilot/services/http:incidentpilot-demo:http/proxy/'
+$savedErrorActionPreference = $ErrorActionPreference
+try {
+    $ErrorActionPreference = 'Continue'
+    1..3 | ForEach-Object {
+        kubectl get --raw $proxyPath *> $null
+        Start-Sleep -Milliseconds 150
+    }
+}
+finally {
+    $ErrorActionPreference = $savedErrorActionPreference
+}
+Start-Sleep -Seconds 1
+
+kubectl -n incidentpilot get deployments,pods
 Write-Host "Scenario '$Scenario' is ready. Start IncidentPilot with ENVIRONMENT=kubernetes and POST /run-incident."

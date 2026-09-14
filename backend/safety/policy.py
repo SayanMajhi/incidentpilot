@@ -249,7 +249,7 @@ class SafetyPolicy:
         )
 
     def allows(self, action: str, **kwargs: Any) -> bool:
-        """Boolean compatibility wrapper; new code should persist ``evaluate``."""
+        """Return only the verdict. Use ``evaluate`` when the reason matters."""
         return self.evaluate(action=action, **kwargs).allowed is True
 
     @staticmethod

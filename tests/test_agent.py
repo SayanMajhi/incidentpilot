@@ -1,7 +1,6 @@
-import pytest
-
 from backend.agent.decision import decision_engine
-from backend.simulator import service
+from backend.shared import slo
+from backend.simulator.environment import simulator
 from backend.tools import diagnostics
 
 
@@ -85,7 +84,7 @@ def test_bad_deployment_full_integration_with_diagnostics_and_simulator():
     diagnostics.get_deployment_history(), even though the current
     (bad) version never appears in that history."""
     try:
-        service.simulate_bad_deployment()
+        simulator.inject_bad_deployment()
 
         observations = {
             "logs": diagnostics.query_logs(),
@@ -105,8 +104,8 @@ def test_bad_deployment_full_integration_with_diagnostics_and_simulator():
         assert decision["confidence"] >= 0.8
     finally:
         # Reset shared simulator state so other tests aren't affected.
-        service.simulate_recover()
-        service.state.current_version = service.INITIAL_VERSION
+        simulator.reset()
+        simulator.state.current_version = slo.INITIAL_VERSION
 
 
 # ---------------------------------------------------------------------------

@@ -25,9 +25,9 @@ from backend.api.schemas import (
     TimelineResponse,
     VersionResponse,
 )
+from backend.config import get_settings
 from backend.infrastructure import InfrastructureError, get_infrastructure
 from backend.safety.policy import policy
-from backend.shared import slo
 from backend.simulator.environment import simulator
 
 
@@ -40,22 +40,6 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _active_infrastructure() -> Any:
-    """Resolve the adapter at request time for configuration/test injection."""
-    # The compatibility facade exposes the historical injection seam used by
-    # local Kubernetes fakes. Importing it lazily avoids an application-import
-    # cycle while normal execution still delegates to get_infrastructure().
-    try:
-        from backend.simulator import service as compatibility_service
-
-        provider = getattr(compatibility_service, "_infrastructure", None)
-        if provider is not None:
-            return provider()
-    except ImportError:
-        pass
-    return get_infrastructure()
-
-
 def _environment_descriptor(infrastructure: Any) -> dict[str, Any]:
     raw = dict(infrastructure.describe())
     raw["mode"] = raw.pop("environment", infrastructure.name)
@@ -66,7 +50,7 @@ def _environment_descriptor(infrastructure: Any) -> dict[str, Any]:
 
 
 def _simulator_only() -> Any:
-    infrastructure = _active_infrastructure()
+    infrastructure = get_infrastructure()
     if not infrastructure.supports_scenario_injection:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -98,7 +82,7 @@ def _mutate_scenario(
 @router.get("/health", response_model=ApiHealthResponse)
 def api_health() -> ApiHealthResponse:
     """API liveness; this deliberately does not require a reachable target."""
-    infrastructure = _active_infrastructure()
+    infrastructure = get_infrastructure()
     return ApiHealthResponse(
         status="ok",
         environment=infrastructure.name,
@@ -109,7 +93,7 @@ def api_health() -> ApiHealthResponse:
 @router.get("/service/health", response_model=ServiceHealthResponse)
 def service_health() -> ServiceHealthResponse:
     try:
-        value = _active_infrastructure().check_health()
+        value = get_infrastructure().check_health()
     except InfrastructureError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
     return ServiceHealthResponse(**value)
@@ -118,7 +102,7 @@ def service_health() -> ServiceHealthResponse:
 @router.get("/metrics", response_model=MetricsResponse)
 def metrics() -> MetricsResponse:
     try:
-        return MetricsResponse(**_active_infrastructure().get_metrics())
+        return MetricsResponse(**get_infrastructure().get_metrics())
     except InfrastructureError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
 
@@ -126,7 +110,7 @@ def metrics() -> MetricsResponse:
 @router.get("/version", response_model=VersionResponse)
 def version() -> VersionResponse:
     try:
-        return VersionResponse(current_version=_active_infrastructure().get_current_version())
+        return VersionResponse(current_version=get_infrastructure().get_current_version())
     except InfrastructureError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
 
@@ -219,39 +203,20 @@ def start_incident() -> RunStartResponse:
 def config() -> RuntimeConfigResponse:
     from backend.agent.controller import controller as active_controller
 
-    infrastructure = _active_infrastructure()
-    # Settings owns these defaults after configuration migration; the fallbacks
-    # retain import compatibility during upgrades from older checkouts.
-    try:
-        from backend.config import get_settings
-
-        settings = get_settings()
-        payload = settings.public_config(
-            environment_description=_environment_descriptor(infrastructure)
-        )
-    except (ImportError, AttributeError):
-        payload = {
-            "slo": {
-                "recovery_max_error_rate": slo.RECOVERY_MAX_ERROR_RATE,
-                "recovery_max_latency_ms": slo.RECOVERY_MAX_LATENCY_MS,
-                "incident_error_rate": slo.ELEVATED_ERROR_RATE,
-                "incident_latency_ms": slo.ELEVATED_LATENCY_MS,
-            },
-            "replicas": {"min": slo.MIN_REPLICAS, "max": slo.MAX_REPLICAS},
-            "agent": {"max_remediation_attempts": active_controller.MAX_ATTEMPTS},
-            "verification": {
-                "samples": active_controller.VERIFICATION_SAMPLES,
-                "interval_seconds": active_controller.verification_interval_seconds,
-            },
-            "environment": _environment_descriptor(infrastructure),
-        }
-    payload["environment"] = _environment_descriptor(infrastructure)
+    infrastructure = get_infrastructure()
+    descriptor = _environment_descriptor(infrastructure)
+    payload = get_settings().public_config(environment_description=descriptor)
+    payload["agent"]["max_remediation_attempts"] = active_controller.MAX_ATTEMPTS
+    payload["verification"] = {
+        "samples": active_controller.VERIFICATION_SAMPLES,
+        "interval_seconds": active_controller.verification_interval_seconds,
+    }
     return RuntimeConfigResponse(**payload)
 
 
 @router.get("/status", response_model=StatusResponse)
 def incident_status() -> StatusResponse:
-    infrastructure = _active_infrastructure()
+    infrastructure = get_infrastructure()
     snapshot = runtime.snapshot()
     try:
         metrics_value = infrastructure.get_metrics()
@@ -308,7 +273,7 @@ def incident_timeline() -> TimelineResponse:
 
 @router.post("/safety/evaluate", response_model=SafetyEvaluateResponse)
 def evaluate_safety(request: SafetyEvaluateRequest) -> SafetyEvaluateResponse:
-    infrastructure = _active_infrastructure()
+    infrastructure = get_infrastructure()
     history: list[dict[str, Any]] = []
     current_version: str | None = None
     if request.action == "rollback_deployment":
@@ -318,31 +283,17 @@ def evaluate_safety(request: SafetyEvaluateRequest) -> SafetyEvaluateResponse:
         except InfrastructureError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
 
-    if hasattr(policy, "evaluate"):
-        decision = policy.evaluate(
-            request.action,
-            target=request.target,
-            namespace=request.namespace,
-            replicas=request.target if request.action == "scale_service" else None,
-            version=request.target if request.action == "rollback_deployment" else None,
-            attempt=request.attempt,
-            deployment_history=history,
-            current_version=current_version,
-        )
-        value = decision.to_dict() if hasattr(decision, "to_dict") else dict(decision)
-    else:
-        allowed = policy.allows(
-            request.action,
-            namespace=request.namespace,
-            replicas=request.target if request.action == "scale_service" else None,
-            version=request.target if request.action == "rollback_deployment" else None,
-        )
-        value = {
-            "checked": True,
-            "allowed": allowed,
-            "rule_id": "legacy_policy",
-            "reason": "Action allowed." if allowed else "Action denied by policy.",
-        }
+    decision = policy.evaluate(
+        request.action,
+        target=request.target,
+        namespace=request.namespace,
+        replicas=request.target if request.action == "scale_service" else None,
+        version=request.target if request.action == "rollback_deployment" else None,
+        attempt=request.attempt,
+        deployment_history=history,
+        current_version=current_version,
+    )
+    value = decision.to_dict()
 
     assessment_id = f"safe-{uuid4().hex}"
     event = {
@@ -366,7 +317,7 @@ def evaluate_safety(request: SafetyEvaluateRequest) -> SafetyEvaluateResponse:
 
 @router.post("/reset", response_model=ResetResponse)
 def reset() -> ResetResponse:
-    infrastructure = _active_infrastructure()
+    infrastructure = get_infrastructure()
     try:
         if infrastructure.supports_scenario_injection:
             runtime.mutate_scenario("healthy", simulator.reset)

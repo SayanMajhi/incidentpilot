@@ -113,7 +113,7 @@ def __getattr__(name: str) -> Any:
 
 
 def as_dict() -> dict[str, Any]:
-    """Return the public SLO shape used by legacy ``GET /config`` callers."""
+    """Return the effective public SLO shape for the current settings."""
     from backend.config import get_settings
 
     return get_settings().slo.as_dict()

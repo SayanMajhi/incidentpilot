@@ -218,6 +218,26 @@ def test_gateway_refuses_non_allow_listed_resources_even_if_asked_directly():
     assert cluster.calls == []
 
 
+def test_gateway_decodes_byte_pod_logs_into_individual_lines():
+    adapter, cluster = make_adapter()
+    cluster.read_namespaced_pod_log = lambda *_args, **_kwargs: (
+        b"2026-09-13T10:00:00Z HTTP 503 timeout\n"
+        b"2026-09-13T10:00:01Z resource pressure\n"
+    )
+
+    text = adapter.gateway.read_pod_log(
+        "incidentpilot",
+        "incidentpilot-demo-abc123",
+        "app",
+        20,
+    )
+
+    assert text.splitlines() == [
+        "2026-09-13T10:00:00Z HTTP 503 timeout",
+        "2026-09-13T10:00:01Z resource pressure",
+    ]
+
+
 def test_replica_sets_owned_by_other_deployments_are_ignored():
     adapter, _ = make_adapter(FakeCluster(versions=("v40", "v41")))
 
@@ -607,7 +627,9 @@ def test_the_same_incident_controller_remediates_a_kubernetes_workload():
     assert attempt["detection"]["incident_detected"] is True
     assert attempt["diagnosis"]["probable_cause"] == "deployment_regression"
     assert (attempt["decision"]["action"], attempt["decision"]["target"]) == ("rollback_deployment", "v41")
-    assert attempt["safety_result"] == {"action": "rollback_deployment", "checked": True, "allowed": True}
+    assert attempt["safety_result"]["action"] == "rollback_deployment"
+    assert attempt["safety_result"]["checked"] is True
+    assert attempt["safety_result"]["allowed"] is True
     assert attempt["verification"].recovered is True
     assert attempt["action_result"]["reconciliation"]["converged"] is True
     assert cluster.version == "v41"

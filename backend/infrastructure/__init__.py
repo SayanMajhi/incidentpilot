@@ -12,6 +12,7 @@ from backend.infrastructure.factory import (
     get_infrastructure,
     reset_infrastructure_cache,
     selected_environment,
+    use_infrastructure,
 )
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "get_infrastructure",
     "reset_infrastructure_cache",
     "selected_environment",
+    "use_infrastructure",
 ]

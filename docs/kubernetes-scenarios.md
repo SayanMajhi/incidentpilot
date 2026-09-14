@@ -66,7 +66,7 @@ The script writes `.incidentpilot-kubernetes-run.json` at the repository root.
 Watch the real workload while it runs:
 
 ```powershell
-kubectl -n incidentpilot get deployment,pods -w
+kubectl -n incidentpilot get deployments,pods -w
 ```
 
 ## Scenarios
