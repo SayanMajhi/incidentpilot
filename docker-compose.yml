@@ -1,33 +1,33 @@
 services:
   backend:
-    image: python:3.12-slim
-    working_dir: /app
-    volumes:
-      - ./:/app
+    build:
+      context: .
+      dockerfile: Dockerfile
     environment:
+      ENVIRONMENT: simulator
       LLM_ENABLED: "false"
       CORS_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
-    command:
-      - sh
-      - -c
-      - >-
-        pip install --no-cache-dir -r requirements.txt &&
-        uvicorn backend.simulator.service:app --host 0.0.0.0 --port 8000
     ports:
       - "8000:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
   frontend:
-    image: node:22-alpine
-    working_dir: /app/frontend
-    volumes:
-      - ./:/app
-    environment:
-      VITE_API_BASE_URL: "http://127.0.0.1:8000"
-    command:
-      - sh
-      - -c
-      - npm ci && npm run dev -- --host 0.0.0.0
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_API_BASE_URL: /api
     ports:
-      - "3000:3000"
+      - "3000:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy

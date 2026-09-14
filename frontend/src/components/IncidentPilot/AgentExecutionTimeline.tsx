@@ -1,20 +1,10 @@
 import React from 'react';
-import type { Attempt, ResolutionBanner } from '../../types/incidentPilot';
-
-const STEP_ICONS: Record<string, string> = {
-  obs: '\uD83D\uDD0D',   // 🔍
-  inv: '\u2315',          // ⌕
-  diag: '\u25C8',         // ◈
-  dec: '\uD83E\uDDE0',   // 🧠
-  safe: '\uD83D\uDEE1',  // 🛡️
-  act: '\u2699',         // ⚙️
-  ver: '\uD83D\uDD0E',   // 🔎
-  result: '\u2713',       // ✓
-  adapt: '\uD83D\uDD04', // 🔄
-};
+import type { Attempt, ResolutionBanner, TimelineEvent } from '../../types/incidentPilot';
+import { titleCase } from '../../viewModels/incidentPilot';
 
 interface AgentExecutionTimelineProps {
   attempts: Attempt[];
+  events: TimelineEvent[];
   resolutionBanner: ResolutionBanner;
   summaryAgentStatus: string;
   selectedAttemptNumber: number | null;
@@ -22,105 +12,135 @@ interface AgentExecutionTimelineProps {
   isRunning: boolean;
 }
 
+function eventTone(event: TimelineEvent): string {
+  const value = `${event.event_type} ${event.phase}`;
+  if (/failed|error|blocked|escalat/i.test(value)) return 'failure';
+  if (/resolved|passed|recovered|no_incident|complete/i.test(value)) return 'success';
+  if (/replan|partial|retry/i.test(value)) return 'warning';
+  return 'neutral';
+}
+
+function eventTime(timestamp: string): string {
+  const date = new Date(timestamp);
+  return Number.isNaN(date.getTime())
+    ? timestamp
+    : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function compactData(data: Record<string, unknown>): Array<[string, string]> {
+  return Object.entries(data)
+    .filter(([, value]) => value !== null && value !== undefined)
+    .slice(0, 6)
+    .map(([key, value]) => {
+      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        return [titleCase(key), String(value)];
+      }
+      return [titleCase(key), JSON.stringify(value)];
+    });
+}
+
 export const AgentExecutionTimeline: React.FC<AgentExecutionTimelineProps> = ({
   attempts,
+  events,
   resolutionBanner,
   summaryAgentStatus,
   selectedAttemptNumber,
   onSelectAttempt,
   isRunning,
 }) => {
-  const isStandby = attempts.length === 0;
-
-  // The live phase reported by the backend is the most accurate label while a
-  // run is in flight; otherwise fall back to the concluded/standby wording.
+  const isStandby = events.length === 0 && attempts.length === 0;
   const timelineSummary = isRunning
     ? summaryAgentStatus
     : isStandby
-    ? 'Awaiting incident execution'
-    : 'Incident cycle concluded';
+      ? 'Awaiting incident execution'
+      : `${events.length} backend events recorded`;
 
   return (
     <section className="timeline-panel" aria-labelledby="timeline-heading">
       <div className="timeline-header">
-        <h2 id="timeline-heading">Agent Execution Timeline</h2>
-        <span className="hud-subtext" id="timelineSummary">
-          {timelineSummary}
-        </span>
+        <div>
+          <span className="section-kicker">Backend audit trail</span>
+          <h2 id="timeline-heading">Agent Execution Timeline</h2>
+        </div>
+        <span className="hud-subtext" id="timelineSummary">{timelineSummary}</span>
       </div>
 
-      <div className="attempts-container" id="attemptsContainer">
-        {isStandby ? (
-          <div className="attempt-card" id="standbyCard">
-            <div className="attempt-header">
-              <span className="attempt-tag">STANDBY STATE</span>
-              <span className="attempt-status-pill running">IDLE</span>
-            </div>
-            <div className="attempt-body" style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-              Select a scenario above and click <strong>Run Incident</strong> to trigger the autonomous loop.
-            </div>
+      {isStandby ? (
+        <div className="attempt-card" id="standbyCard">
+          <div className="attempt-header">
+            <span className="attempt-tag">STANDBY STATE</span>
+            <span className="attempt-status-pill running">IDLE</span>
           </div>
-        ) : (
-          attempts.map((attempt, index) => {
-            let stateClass = 'active-attempt';
-            if (attempt.statusClass === 'success') {
-              stateClass = 'resolved-attempt';
-            } else if (attempt.statusClass === 'retry') {
-              stateClass = 'failed-attempt';
-            }
-
+          <div className="attempt-body timeline-empty">
+            Select a scenario and run the agent. Every item shown here will come from a timestamped backend event.
+          </div>
+        </div>
+      ) : (
+        <ol className="backend-event-stream" aria-label="Timestamped backend agent events">
+          {events.map((event) => {
+            const data = compactData(event.data || {});
             return (
-              <React.Fragment key={attempt.id}>
-              {index > 0 && (
-                <div className="adaptation-bridge" aria-label="Agent adapted after failed verification">
-                  <span>↓</span>
-                  <strong>ADAPT</strong>
-                  <span>Fresh evidence changed the next decision</span>
-                </div>
-              )}
+              <li key={event.event_id} className={`backend-event ${eventTone(event)}`}>
+                <div className="event-rail" aria-hidden="true"><span /></div>
+                <article>
+                  <header>
+                    <time dateTime={event.timestamp}>{eventTime(event.timestamp)}</time>
+                    <span className="event-type">{titleCase(event.event_type)}</span>
+                    <span className="event-phase">{titleCase(event.phase)}</span>
+                    {event.attempt != null && event.attempt > 0 && <span className="event-attempt">Attempt {event.attempt}</span>}
+                  </header>
+                  <p>{event.message}</p>
+                  {data.length > 0 && (
+                    <dl className="event-data">
+                      {data.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+                    </dl>
+                  )}
+                </article>
+              </li>
+            );
+          })}
+          {isRunning && (
+            <li className="backend-event live-waiting">
+              <div className="event-rail" aria-hidden="true"><span /></div>
+              <article><p>Waiting for the next controller event…</p></article>
+            </li>
+          )}
+        </ol>
+      )}
+
+      {attempts.length > 0 && (
+        <div className="attempt-summary-section">
+          <div className="attempt-summary-heading">
+            <h3>Attempt records</h3>
+            <span>Select one to inspect its stored evidence</span>
+          </div>
+          <div className="attempts-container" id="attemptsContainer">
+            {attempts.map((attempt) => (
               <details
                 key={attempt.id}
-                className={`attempt-card ${stateClass} ${selectedAttemptNumber === attempt.number ? 'selected-attempt' : ''}`}
+                className={`attempt-card compact-attempt ${attempt.statusClass}-attempt ${selectedAttemptNumber === attempt.number ? 'selected-attempt' : ''}`}
                 id={attempt.id}
-                open
+                open={selectedAttemptNumber === attempt.number}
                 onToggle={(event) => { if (event.currentTarget.open) onSelectAttempt(attempt); }}
               >
                 <summary className="attempt-header">
                   <span className="attempt-tag">{attempt.tag}</span>
-                  <span className={`attempt-status-pill ${attempt.statusClass}`}>
-                    {attempt.statusText}
-                  </span>
+                  <span className={`attempt-status-pill ${attempt.statusClass}`}>{attempt.statusText}</span>
                 </summary>
-                <div className="attempt-body">
-                  {attempt.steps.map((step, idx) => (
-                    <div key={idx} className="step-item">
-                      <div className="step-track">
-                        <div className="step-icon-circle">
-                          {STEP_ICONS[step.type] || '\u25CB'}
-                        </div>
-                        <div className="step-connector"></div>
-                      </div>
-                      <div className="step-content">
-                        <div className="step-label">{step.label}</div>
-                        <div className={`step-details ${step.customClass || ''}`}>
-                          {step.details}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                <div className="attempt-body attempt-facts">
+                  <div><strong>Recorded action</strong><span>{attempt.actionSummary}</span></div>
+                  <div><strong>Evidence</strong><span>{attempt.evidenceSummary}</span></div>
                 </div>
               </details>
-              </React.Fragment>
-            );
-          })
-        )}
-      </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {resolutionBanner.visible && (
         <div
           className={`resolution-banner ${resolutionBanner.isResolved ? 'resolved' : 'escalated'}`}
           id="resolutionBanner"
-          style={{ display: 'block' }}
         >
           {resolutionBanner.text}
         </div>

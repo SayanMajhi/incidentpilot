@@ -1,12 +1,8 @@
-# IncidentPilot backend dependencies (Python 3.11+)
+# IncidentPilot runtime dependencies (Python 3.11+).
+# Development, Kubernetes, and hosted-model extras live in separate files.
 fastapi==0.141.1
+starlette==0.52.1
 uvicorn==0.52.4
 pydantic==2.13.5
+pydantic-settings==2.13.1
 python-dotenv==1.0.1
-
-# Optional Hugging Face / Qwen decision proposal engine (LLM_ENABLED=true)
-huggingface_hub==0.26.2
-
-# Test tooling
-pytest==9.1.1
-httpx==0.28.1

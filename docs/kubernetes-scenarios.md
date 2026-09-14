@@ -40,14 +40,17 @@ Start IncidentPilot in a separate PowerShell window:
 ```powershell
 $env:ENVIRONMENT = 'kubernetes'
 $env:LLM_ENABLED = 'false'
-.\.venv\Scripts\python.exe -m uvicorn backend.simulator.service:app --host 127.0.0.1 --port 8000
+.\.venv\Scripts\python.exe -m uvicorn backend.api.app:app --host 127.0.0.1 --port 8000
 ```
 
-Run a scenario, then start the controller:
+Run a scenario, then start the controller. The POST returns HTTP 202 with the
+run ID; retrieve the live/final result through `/status` and `/timeline`:
 
 ```powershell
 .\scripts\run_kubernetes_scenario.ps1 -Scenario restart
 Invoke-RestMethod -Method Post http://127.0.0.1:8000/run-incident | ConvertTo-Json -Depth 20
+Invoke-RestMethod http://127.0.0.1:8000/status | ConvertTo-Json -Depth 30
+Invoke-RestMethod http://127.0.0.1:8000/timeline | ConvertTo-Json -Depth 30
 ```
 
 For a terminal-only run that writes a compact audit file, use:

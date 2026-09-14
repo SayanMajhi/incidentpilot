@@ -146,21 +146,24 @@ ENVIRONMENT=kubernetes ./.venv/bin/python scripts/check_kubernetes_connection.py
 Start the API in Kubernetes mode:
 
 ```bash
-ENVIRONMENT=kubernetes ./.venv/bin/python -m uvicorn backend.simulator.service:app --host 127.0.0.1 --port 8000
+ENVIRONMENT=kubernetes ./.venv/bin/python -m uvicorn backend.api.app:app --host 127.0.0.1 --port 8000
 ```
 
 ```powershell
 $env:ENVIRONMENT='kubernetes'
-.\.venv\Scripts\python.exe -m uvicorn backend.simulator.service:app --host 127.0.0.1 --port 8000
+.\.venv\Scripts\python.exe -m uvicorn backend.api.app:app --host 127.0.0.1 --port 8000
 ```
 
-`GET /config` and `GET /status` now report `"environment": "kubernetes"`, and
-`POST /run-incident` runs the controller against the demo Deployment.
+`GET /config` and `GET /status` now report `"environment": "kubernetes"`.
+`POST /run-incident` returns HTTP 202 with a run ID and starts the controller
+against the demo Deployment in the background; follow it through `/status`
+and `/timeline`.
 
-In Kubernetes mode the simulator-only endpoints (`/simulate/*`, `/health`,
-`/metrics`, `/version`) return **409**. Real-cluster failures are injected by
-the allow-listed manifests through `scripts/run-k8s-demo.ps1`; the API itself
-does not mutate a cluster merely to create a failure.
+In Kubernetes mode the simulator mutation endpoints (`/simulate/*`) return
+**409**. The universal `/health` endpoint still reports API liveness and the
+active environment. Real-cluster failures are injected by the allow-listed
+manifests through `scripts/run-k8s-demo.ps1`; the API itself does not mutate a
+cluster merely to create a failure.
 
 ### Configuration
 
@@ -234,7 +237,7 @@ API request is made:
   apply, delete or create method. The only writes are "patch this
   Deployment's pod template" and "set this Deployment's replica count".
   Template patches may only contain `metadata` and `spec`.
-- **Replica bounds:** `1..5` by default, shared with the safety policy.
+- **Replica bounds:** `1..3` by default, shared with the safety policy.
   Configuration may narrow but never widen them; the adapter and the gateway
   both check.
 - **Rollback targets:** must be a well-formed version that exists in the

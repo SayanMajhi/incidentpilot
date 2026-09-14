@@ -199,11 +199,17 @@ def test_second_decision_depends_on_newly_observed_evidence_not_on_a_fixed_seque
     service.reset_incident()
     service.simulate_adaptive_incident()
     _set_causes(transient=True)
-    with patch.object(service, "clear_transient_failure", return_value=False):
+    no_effect = {
+        "action": "restart_service",
+        "success": True,
+        "status": "completed",
+        "message": "Restart executed but deliberately left simulator causes unchanged.",
+    }
+    with patch.object(remediation, "restart_service", return_value=no_effect):
         results["restart_had_no_effect"] = make_controller().run_incident()
 
     expected = {name: (sequence, status) for name, (_, sequence, status) in _WORLDS.items()}
-    expected["restart_had_no_effect"] = ([("restart_service", None), ("escalate", None)], "escalated")
+    expected["restart_had_no_effect"] = ([("restart_service", None)], "escalated")
 
     # --- Attempt 1 saw exactly the same evidence in every world -------------
     first_attempts = [result["attempts"][0] for result in results.values()]
@@ -222,16 +228,25 @@ def test_second_decision_depends_on_newly_observed_evidence_not_on_a_fixed_seque
         assert actions(result) == sequence, name
         assert result["status"] == status, name
 
-    second_actions = {actions(result)[1] for result in results.values()}
+    second_actions = {
+        (
+            (result["attempts"][1]["decision"]["action"], result["attempts"][1]["decision"]["target"])
+            if len(result["attempts"]) > 1
+            else (result["decision"]["action"], result["decision"].get("target"))
+        )
+        for result in results.values()
+    }
     assert len(second_actions) == len(results), "every world must produce a different second decision"
 
     # --- The justification for each second action is evidence that did not
     #     exist in attempt 1 ---------------------------------------------------
     for name, result in results.items():
-        first, second = result["attempts"]
-        if second["decision"]["action"] == "escalate":
-            assert second["new_evidence"] == []
+        first = result["attempts"][0]
+        if len(result["attempts"]) == 1:
+            assert result["decision"]["action"] == "escalate"
+            assert first["new_evidence_after_action"] == []
             continue
+        second = result["attempts"][1]
         first_ids = {e["id"] for e in first["evidence"]}
         justification = set(second["decision"]["evidence"])
         assert justification, name
@@ -355,17 +370,17 @@ def test_unsupported_evidence_escalates_without_inventing_an_action():
     ]
 
     with patch.object(diagnostics, "query_logs", return_value=unrecognised_logs), \
-            patch.object(policy, "allows", wraps=policy.allows) as allows, \
+            patch.object(policy, "evaluate", wraps=policy.evaluate) as evaluate, \
             patch.object(remediation, "restart_service") as restart, \
             patch.object(remediation, "scale_service") as scale, \
             patch.object(remediation, "rollback_deployment") as rollback:
         result = make_controller().run_incident()
 
-    assert actions(result) == [("escalate", None)]
+    assert actions(result) == []
     assert result["status"] == "escalated"
-    assert result["attempts"][0]["detection"]["incident_detected"] is True
-    assert result["attempts"][0]["diagnosis"]["probable_cause"] == "undetermined"
-    allows.assert_not_called()
+    assert result["diagnosis"]["probable_cause"] == "undetermined"
+    assert result["decision"]["action"] == "escalate"
+    evaluate.assert_not_called()
     restart.assert_not_called()
     scale.assert_not_called()
     rollback.assert_not_called()
@@ -378,8 +393,9 @@ def test_capacity_shortfall_beyond_safe_maximum_escalates():
 
     result = make_controller().run_incident()
 
-    assert actions(result) == [("escalate", None)]
-    assert "safe maximum" in result["attempts"][0]["decision"]["reason"]
+    assert actions(result) == []
+    assert result["decision"]["action"] == "escalate"
+    assert "safe maximum" in result["decision"]["reason"]
 
 
 # ===========================================================================
@@ -390,13 +406,14 @@ def test_safety_policy_is_evaluated_before_every_executed_action():
     service.simulate_adaptive_incident()
 
     call_order = []
-    real_allows = policy.allows
+    real_evaluate = policy.evaluate
     real_restart = remediation.restart_service
     real_scale = remediation.scale_service
 
-    def spy_allows(action, **kwargs):
+    def spy_evaluate(*args, **kwargs):
+        action = kwargs.get("action") or (args[0] if args else None)
         call_order.append(("policy", action))
-        return real_allows(action, **kwargs)
+        return real_evaluate(*args, **kwargs)
 
     def spy_restart():
         call_order.append(("execute", "restart_service"))
@@ -406,7 +423,7 @@ def test_safety_policy_is_evaluated_before_every_executed_action():
         call_order.append(("execute", "scale_service"))
         return real_scale(replicas)
 
-    with patch.object(policy, "allows", side_effect=spy_allows), \
+    with patch.object(policy, "evaluate", side_effect=spy_evaluate), \
             patch.object(remediation, "restart_service", side_effect=spy_restart), \
             patch.object(remediation, "scale_service", side_effect=spy_scale):
         result = make_controller().run_incident()
@@ -418,11 +435,10 @@ def test_safety_policy_is_evaluated_before_every_executed_action():
         ("execute", "scale_service"),
     ]
     for attempt in result["attempts"]:
-        assert attempt["safety_result"] == {
-            "action": attempt["decision"]["action"],
-            "checked": True,
-            "allowed": True,
-        }
+        assert attempt["safety_result"]["action"] == attempt["decision"]["action"]
+        assert attempt["safety_result"]["checked"] is True
+        assert attempt["safety_result"]["allowed"] is True
+        assert attempt["safety_result"]["rule_id"]
 
 
 def test_unsafe_proposal_in_a_later_attempt_is_blocked_before_execution():
@@ -475,16 +491,17 @@ def test_llm_cannot_repeat_a_remediation_that_already_failed_verification():
 
     result = ctl.run_incident()
 
-    first, second = result["attempts"]
+    first, = result["attempts"]
     # Attempt 1: the model agreed on the action; its target was accepted.
     assert first["decision"]["source"] == "llm"
     assert (first["decision"]["action"], first["decision"]["target"]) == ("scale_service", 3)
     assert first["verification"].recovered is False
-    # Attempt 2: the model repeats the failed maximum; arbitration escalates
-    # because no larger bounded action exists.
-    assert second["decision"]["source"] == "deterministic_arbitration"
-    assert second["decision"]["llm_proposal"]["target"] == 3
-    assert (second["decision"]["action"], second["decision"]["target"]) == ("escalate", None)
+    # The next proposal repeats the failed maximum; arbitration escalates.
+    # Escalation is a controller decision, so it does not consume a remediation
+    # attempt record.
+    assert result["decision"]["source"] == "deterministic_arbitration"
+    assert result["decision"]["llm_proposal"]["target"] == 3
+    assert (result["decision"]["action"], result["decision"]["target"]) == ("escalate", None)
     assert result["status"] == "escalated"
     assert llm.calls == 2
 

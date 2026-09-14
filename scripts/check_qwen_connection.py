@@ -1,39 +1,19 @@
-"""
-Temporary, isolated connectivity check for Hugging Face Inference Providers + Qwen.
+"""Smoke-test the optional Hugging Face/Qwen proposal provider.
 
-This script is NOT part of the IncidentPilot agent architecture. It does not
-import or touch DecisionEngine, IncidentController, SafetyPolicy, or any other
-agent module. Its only purpose is to confirm, from the command line, that:
-
-    HF_TOKEN and HF_MODEL are set correctly, and
-    InferenceClient(...).chat.completions.create(...) can reach the model
-    and return a usable final answer (not just reasoning).
-
-Delete or move this script once the real LLMDecisionEngine integration lands.
-
-Usage (via a local .env file, loaded automatically):
-    # .env (not committed)
-    HF_TOKEN=hf_xxx
-    HF_MODEL=Qwen/Qwen3-32B
-
-    python scripts/check_qwen_connection.py
-
-Usage (via shell environment variables, still works):
-    export HF_TOKEN=hf_xxx
-    export HF_MODEL=Qwen/Qwen3-32B   # optional, defaults to this value
-    python scripts/check_qwen_connection.py
+This does not run the incident controller or execute infrastructure actions.
+Install ``requirements-llm.txt``, set ``HF_TOKEN`` and ``HF_MODEL`` (in the
+shell or an uncommitted ``.env``), then run this file from the repository root.
+The normal deterministic IncidentPilot demo does not require this check.
 """
 
-import os
+from pathlib import Path
 import sys
 
-from dotenv import load_dotenv
-from huggingface_hub import InferenceClient
-from huggingface_hub.errors import HfHubHTTPError
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
 
-load_dotenv()
-
-DEFAULT_MODEL = "Qwen/Qwen3-32B"
+from backend.config import get_settings
 
 SYSTEM_PROMPT = (
     "You are a connectivity test. Do not provide reasoning. "
@@ -46,17 +26,33 @@ USER_PROMPT = "Respond with the required test string."
 # left `finish_reason == "length"` with `content is None`. 100 gives the
 # model room to actually finish a short final answer.
 MAX_TOKENS = 100
+EXPECTED_REPLY = "INCIDENTPILOT_QWEN_OK"
 
 
 def main() -> int:
-    hf_token = os.getenv("HF_TOKEN")
-    hf_model = os.getenv("HF_MODEL") or DEFAULT_MODEL
+    settings = get_settings()
+    hf_token = (
+        settings.hf_token.get_secret_value()
+        if settings.hf_token is not None
+        else None
+    )
+    hf_model = settings.hf_model
 
     if not hf_token:
         print(
             "ERROR: HF_TOKEN environment variable is not set.\n"
-            "Set it before running this script, e.g.:\n"
-            "  export HF_TOKEN=hf_your_token_here",
+            "Set it in the current shell or an uncommitted .env file, then retry.",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        from huggingface_hub import InferenceClient
+        from huggingface_hub.errors import HfHubHTTPError
+    except ImportError:
+        print(
+            "ERROR: Optional Hugging Face dependencies are not installed. "
+            "Run: python -m pip install -r requirements-llm.txt",
             file=sys.stderr,
         )
         return 1
@@ -78,8 +74,16 @@ def main() -> int:
         reply_text = getattr(message, "content", None)
 
         if reply_text:
-            print(reply_text)
-            return 0
+            normalized_reply = str(reply_text).strip()
+            if normalized_reply == EXPECTED_REPLY:
+                print(EXPECTED_REPLY)
+                return 0
+            print(
+                "ERROR: Provider returned final content, but it did not match "
+                "the required connectivity sentinel.",
+                file=sys.stderr,
+            )
+            return 1
 
         # content is still None/empty. Do NOT fall back to reasoning_content
         # as the final answer — for this application, reasoning is not an

@@ -1,4 +1,4 @@
-"""Validation and serialization tests for shared agent domain models."""
+"""Validation tests for the runtime-aligned incident domain contract."""
 
 from datetime import datetime, timezone
 
@@ -6,158 +6,186 @@ import pytest
 from pydantic import ValidationError
 
 from backend.models import (
+    ActionProposal,
+    ActionType,
+    AgentPhase,
     EvidenceItem,
     EvidenceSeverity,
-    InvestigationResult,
-    IncidentRunState,
-    IncidentRunStatus,
-    ProposedAction,
-    RemediationActionType,
-    TraceEvent,
-    TracePhase,
+    IncidentRun,
+    IncidentStatus,
+    TimelineEvent,
     VerificationResult,
     VerificationStatus,
 )
 
 
-def test_evidence_item_serializes_as_json_values():
-    timestamp = datetime(2026, 9, 13, 8, 30, tzinfo=timezone.utc)
-    item = EvidenceItem(
-        source="logs",
-        key="resource_pressure",
-        value={"replicas": 1},
-        severity=EvidenceSeverity.ERROR,
-        timestamp=timestamp,
-        description="Connection pool exhausted.",
-    )
-
-    assert item.model_dump(mode="json") == {
-        "source": "logs",
-        "key": "resource_pressure",
-        "value": {"replicas": 1},
-        "severity": "error",
-        "timestamp": "2026-09-13T08:30:00Z",
-        "description": "Connection pool exhausted.",
+def test_required_phase_status_and_action_values_match_runtime():
+    assert {phase.value for phase in AgentPhase} == {
+        "idle",
+        "observing",
+        "incident_detected",
+        "investigating",
+        "diagnosing",
+        "planning",
+        "safety_check",
+        "executing",
+        "verifying",
+        "replanning",
+        "resolved",
+        "blocked",
+        "escalated",
+        "failed",
+        "complete",
+    }
+    assert {status.value for status in IncidentStatus} == {
+        "idle",
+        "running",
+        "no_incident",
+        "resolved",
+        "blocked",
+        "escalated",
+        "failed",
+    }
+    assert {action.value for action in ActionType} == {
+        "restart_service",
+        "rollback_deployment",
+        "scale_service",
+        "escalate",
     }
 
 
-def test_investigation_coerces_nested_evidence_to_typed_models():
-    result = InvestigationResult(
-        evidence=[{
-            "source": "metrics",
-            "key": "error_rate",
-            "value": 0.7,
-            "severity": "critical",
-            "description": "Error-rate SLO breached.",
-        }],
-        summary="The service is unhealthy.",
+def test_evidence_item_uses_actual_decision_engine_fields():
+    timestamp = datetime(2026, 9, 13, 8, 30, tzinfo=timezone.utc)
+    item = EvidenceItem(
+        id="logs:resource_pressure",
+        source="logs",
+        signal="resource_pressure",
+        detail="Connection pool exhausted.",
+        value={"replicas": 1},
+        severity=EvidenceSeverity.ERROR,
+        timestamp=timestamp,
     )
 
-    assert isinstance(result.evidence[0], EvidenceItem)
-    assert result.evidence[0].severity is EvidenceSeverity.CRITICAL
+    assert item.to_dict() == {
+        "id": "logs:resource_pressure",
+        "source": "logs",
+        "signal": "resource_pressure",
+        "detail": "Connection pool exhausted.",
+        "value": {"replicas": 1},
+        "count": None,
+        "severity": "error",
+        "timestamp": "2026-09-13T08:30:00Z",
+    }
+
+
+def test_evidence_accepts_transitional_input_but_serializes_canonical_shape():
+    item = EvidenceItem(
+        source="metrics",
+        key="error_rate_breach",
+        description="Error rate exceeded its SLO.",
+    )
+
+    assert item.id == "metrics:error_rate_breach"
+    assert item.signal == "error_rate_breach"
+    assert "key" not in item.to_dict()
 
 
 @pytest.mark.parametrize(
-    ("raw", "expected"),
-    [
-        ("restart", RemediationActionType.RESTART),
-        ("rollback", RemediationActionType.ROLLBACK),
-        ("scale", RemediationActionType.SCALE),
-    ],
+    "action",
+    ["restart_service", "rollback_deployment", "scale_service", "escalate"],
 )
-def test_proposed_action_handles_each_enum_value(raw, expected):
-    action = ProposedAction(
-        action_type=raw,
-        reason="Evidence supports this bounded remediation.",
+def test_action_proposal_serializes_runtime_action_names(action):
+    proposal = ActionProposal(
+        action=action,
+        reason="Evidence supports this decision.",
         confidence=0.9,
     )
 
-    assert action.action_type is expected
-    assert action.model_dump(mode="json")["action_type"] == raw
+    assert proposal.to_dict()["action"] == action
 
 
-def test_proposed_action_rejects_invalid_remediation_type():
+def test_action_proposal_accepts_old_field_during_migration():
+    proposal = ActionProposal(
+        action_type="restart",
+        reason="Transient-failure evidence supports a restart.",
+        confidence=0.7,
+    )
+
+    assert proposal.action is ActionType.RESTART_SERVICE
+    assert proposal.action_type is ActionType.RESTART_SERVICE
+
+
+def test_action_proposal_rejects_unknown_or_invalid_confidence():
     with pytest.raises(ValidationError):
-        ProposedAction(
-            action_type="delete_database",
-            reason="Unsafe and unsupported.",
-            confidence=1.0,
-        )
-
-
-def test_proposed_action_validates_confidence_range():
+        ActionProposal(action="delete_database", reason="unsafe", confidence=1.0)
     with pytest.raises(ValidationError):
-        ProposedAction(
-            action_type="restart",
-            reason="Confidence cannot exceed one.",
-            confidence=1.1,
-        )
+        ActionProposal(action="restart_service", reason="invalid", confidence=1.1)
 
 
-def test_verification_supports_legacy_constructor_and_structured_fields():
+def test_verification_supports_partial_and_legacy_constructor():
     result = VerificationResult(
-        True,
-        "Service remained healthy during verification",
-        {"samples": 3},
-        metrics_before={"error_rate": 0.7},
-        metrics_after={"error_rate": 0.01},
+        status="partial",
+        reason="Latency improved but remains above its SLO.",
+        metrics_before={"latency_ms": 1000},
+        metrics_after={"latency_ms": 750},
+        deltas={"latency_ms": -250},
     )
+    legacy = VerificationResult(True, "Recovered", {"samples": 3})
 
-    payload = result.to_dict()
-    assert result.status is VerificationStatus.RECOVERED
-    assert payload["status"] == "recovered"
-    assert payload["recovered"] is True
-    assert payload["metrics_before"]["error_rate"] == 0.7
-    assert payload["metrics_after"]["error_rate"] == 0.01
+    assert result.status is VerificationStatus.PARTIAL
+    assert result.recovered is False
+    assert legacy.status is VerificationStatus.RECOVERED
+    assert legacy.recovered is True
 
 
-def test_verification_rejects_inconsistent_status_and_boolean():
+def test_verification_rejects_inconsistent_verdict_fields():
     with pytest.raises(ValidationError):
-        VerificationResult(
-            status="recovered",
-            recovered=False,
-            reason="Contradictory verdict.",
-        )
+        VerificationResult(status="recovered", recovered=False, reason="Contradiction")
 
 
-def test_trace_event_serializes_nested_models_for_api_consumers():
-    event = TraceEvent(
+def test_timeline_event_is_json_ready_and_immutable():
+    event = TimelineEvent(
+        event_id="evt-1",
+        timestamp="2026-09-13T08:30:00Z",
+        incident_id="inc-a82f",
         attempt=1,
-        phase=TracePhase.DECIDING,
-        evidence=[{
-            "source": "logs",
-            "key": "transient_failure",
-            "value": "HTTP 503",
-            "severity": "warning",
-            "description": "A transient request failure was observed.",
-        }],
-        diagnosis="transient_service_failure",
-        decision={
-            "action_type": "restart",
-            "reason": "Restart evidence is present.",
-            "confidence": 0.7,
-        },
+        phase="safety_check",
+        event_type="safety_rejected",
+        message="Scale target exceeds the configured upper bound.",
+        data={"rule_id": "replica_upper_bound"},
     )
 
-    payload = event.model_dump(mode="json")
-    assert payload["phase"] == "deciding"
-    assert payload["decision"]["action_type"] == "restart"
-    assert payload["evidence"][0]["severity"] == "warning"
+    assert event.to_dict() == {
+        "event_id": "evt-1",
+        "timestamp": "2026-09-13T08:30:00Z",
+        "incident_id": "inc-a82f",
+        "attempt": 1,
+        "phase": "safety_check",
+        "event_type": "safety_rejected",
+        "message": "Scale target exceeds the configured upper bound.",
+        "data": {"rule_id": "replica_upper_bound"},
+    }
+    with pytest.raises(ValidationError):
+        event.message = "mutated"
 
 
-def test_incident_run_state_serializes_for_status_apis():
-    state = IncidentRunState(
-        run_id="inc-a82f",
-        goal="Restore the service safely.",
-        started_at="2026-09-13T08:30:00Z",
-        status=IncidentRunStatus.ESCALATED,
-        phase=TracePhase.ESCALATED,
-        attempt=3,
-        history=[{"attempt": 1, "action": "restart_service"}],
-        reason="Maximum remediation attempts exhausted",
+def test_incident_run_exposes_compatibility_history_and_trace_events():
+    event = TimelineEvent(
+        incident_id="inc-a82f",
+        phase="observing",
+        event_type="observation_started",
+        message="Reading fresh telemetry.",
+    )
+    run = IncidentRun(
+        incident_id="inc-a82f",
+        goal="Restore SLOs safely.",
+        status="no_incident",
+        phase="complete",
+        timeline=[event],
     )
 
-    payload = state.to_dict()
-    assert payload["status"] == "escalated"
-    assert payload["phase"] == "escalated"
-    assert payload["history"][0]["action"] == "restart_service"
+    payload = run.to_dict()
+    assert payload["run_id"] == "inc-a82f"
+    assert payload["history"] == payload["attempts"] == []
+    assert payload["trace_events"] == payload["timeline"]
+    assert payload["status"] == "no_incident"

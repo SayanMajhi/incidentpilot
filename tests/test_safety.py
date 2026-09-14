@@ -62,3 +62,75 @@ def test_blank_rollback_version_is_blocked():
 def test_unknown_actions_are_denied_by_default():
     assert not policy.allows("drop_table")
     assert not policy.allows("")
+
+
+def test_safety_decision_explains_upper_bound_and_attempt_budget():
+    decision = policy.evaluate(
+        action="scale_service",
+        replicas=20,
+        namespace="incidentpilot",
+        attempt=1,
+        max_attempts=3,
+    )
+
+    assert decision.allowed is False
+    assert decision.rule_id == "replica_upper_bound"
+    assert decision.bounds == {"min_replicas": 1, "max_replicas": 3}
+    assert decision.budget.to_dict() == {
+        "attempt": 1,
+        "maximum": 3,
+        "remaining_after_this_attempt": 2,
+    }
+    assert "1-3" in decision.reason
+
+
+def test_attempt_budget_is_enforced_before_action_approval():
+    decision = policy.evaluate(
+        action="restart_service",
+        attempt=4,
+        max_attempts=3,
+    )
+
+    assert decision.allowed is False
+    assert decision.rule_id == "attempt_budget"
+
+
+def test_rollback_target_must_come_from_history_when_history_is_available():
+    history = [{"version": "v40"}, {"version": "v41"}]
+
+    allowed = policy.evaluate(
+        action="rollback_deployment",
+        version="v41",
+        current_version="v42",
+        deployment_history=history,
+    )
+    unknown = policy.evaluate(
+        action="rollback_deployment",
+        version="v39",
+        current_version="v42",
+        deployment_history=history,
+    )
+    same = policy.evaluate(
+        action="rollback_deployment",
+        version="v42",
+        current_version="v42",
+        deployment_history=history,
+    )
+
+    assert allowed.allowed is True
+    assert allowed.rule_id == "rollback_history"
+    assert unknown.allowed is False
+    assert unknown.rule_id == "rollback_history"
+    assert same.allowed is False
+    assert same.rule_id == "rollback_changes_version"
+
+
+def test_namespace_rejection_carries_policy_evidence():
+    decision = policy.evaluate(
+        action="restart_service",
+        namespace="default",
+    )
+
+    assert decision.allowed is False
+    assert decision.rule_id == "namespace_allowlist"
+    assert decision.namespace == "default"

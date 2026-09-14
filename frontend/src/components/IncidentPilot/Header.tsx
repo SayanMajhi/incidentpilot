@@ -5,7 +5,7 @@ interface HeaderProps {
   /** Called only once the user commits the value (blur, Enter, or Ping). */
   onUrlChange: (newUrl: string) => void;
   connectionStatus: 'connected' | 'offline' | 'checking';
-  onPing: () => void;
+  onPing: (url: string) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -34,8 +34,10 @@ export const Header: React.FC<HeaderProps> = ({
     pillText = 'CONNECTED';
   }
 
+  const normalizedDraft = draftUrl.trim().replace(/\/+$/, '');
+
   const commit = () => {
-    if (isDirty) onUrlChange(draftUrl);
+    if (isDirty) onUrlChange(normalizedDraft);
   };
 
   return (
@@ -87,7 +89,7 @@ export const Header: React.FC<HeaderProps> = ({
           type="button"
           onClick={() => {
             commit();
-            onPing();
+            onPing(normalizedDraft);
           }}
           aria-label="Test Backend Connection"
         >

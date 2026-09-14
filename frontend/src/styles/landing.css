@@ -382,6 +382,15 @@
   color: var(--text-tertiary);
 }
 
+.preview-label {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--text-muted);
+  font-size: .68rem;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
 /* ─── Section Base ─── */
 .landing-section {
   padding: var(--space-5xl) var(--space-lg);
@@ -1053,7 +1062,7 @@
   font-weight: 700;
   text-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
 }
-/* Arrow normal time par chup rahega */
+/* Keep the arrow hidden until its connector becomes active. */
 .pipeline-arrow-head {
   position: absolute;
   right: -2px;
@@ -1065,7 +1074,7 @@
   transition: all 0.3s ease;
 }
 
-/* Arrow tabhi dikhega jab step live chal raha ho */
+/* The active connector carries the animated directional cue. */
 .pipeline-connector-box.flowing .pipeline-arrow-head {
   opacity: 1;
   color: #22d3ee !important;

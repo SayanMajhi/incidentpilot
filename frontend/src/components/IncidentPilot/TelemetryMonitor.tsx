@@ -1,22 +1,24 @@
 import React, { useRef, useEffect, useCallback } from 'react';
-import type { RuntimeConfig, TelemetryPoint } from '../../types/incidentPilot';
+import type { RuntimeConfig, RuntimeEnvironment, TelemetryPoint } from '../../types/incidentPilot';
 
 interface TelemetryMonitorProps {
   telemetryBuffer: TelemetryPoint[];
   maxSamples: number;
   config: RuntimeConfig;
+  environment: RuntimeEnvironment;
 }
 
-export const TelemetryMonitor: React.FC<TelemetryMonitorProps> = ({ telemetryBuffer, maxSamples, config }) => {
+export const TelemetryMonitor: React.FC<TelemetryMonitorProps> = ({ telemetryBuffer, maxSamples, config, environment }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Thresholds and the chart's y-axis ceiling come from `GET /config`, so the
   // lines drawn here are the ones the backend actually enforces.
-  const alertErrorRate = config.elevated.error_rate;
-  const alertLatencyMs = config.elevated.latency_ms;
-  const sloErrorRate = config.recovery.max_error_rate;
-  const sloLatencyMs = config.recovery.max_latency_ms;
-  const latencyCeiling = config.chart.latency_ceiling_ms;
+  const alertErrorRate = config.slo.incident_error_rate;
+  const alertLatencyMs = config.slo.incident_latency_ms;
+  const sloErrorRate = config.slo.recovery_max_error_rate;
+  const sloLatencyMs = config.slo.recovery_max_latency_ms;
+  const latencyCeiling = config.chart?.latency_ceiling_ms
+    ?? Math.max(config.slo.incident_latency_ms * 4, config.slo.recovery_max_latency_ms * 2);
 
   const lastSample = telemetryBuffer[telemetryBuffer.length - 1];
 
@@ -159,8 +161,8 @@ export const TelemetryMonitor: React.FC<TelemetryMonitorProps> = ({ telemetryBuf
     <section className="telemetry-monitor-panel" aria-labelledby="monitor-heading">
       <div className="monitor-header">
         <div>
-          <h3 id="monitor-heading">Real Time Telemetry Spike Monitor</h3>
-          <span className="hud-subtext">Live SLI telemetry sampled from the FastAPI simulator</span>
+          <h3 id="monitor-heading">Real-time Telemetry Monitor</h3>
+          <span className="hud-subtext">Live SLI telemetry from the {environment.mode} infrastructure adapter</span>
         </div>
         <div className={statusPillClass} id="monitorStatusPill">
           <span className="dot" aria-hidden="true"></span>

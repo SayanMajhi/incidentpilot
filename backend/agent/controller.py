@@ -1,22 +1,32 @@
 import itertools
-import os
 import time
 from datetime import datetime, timezone
 from uuid import uuid4
 
 from backend.agent.decision import collect_evidence, decision_engine, find_failed_attempt
 from backend.agent.llm_decision import llm_decision_engine
-from backend.safety.policy import policy
-from backend.infrastructure import get_infrastructure
-from backend.models import TraceEvent, TracePhase
-from backend.verification.verifier import verifier
+from backend.config import get_settings
+from backend.safety.policy import SafetyPolicy, policy
+from backend.infrastructure import InfrastructureError, get_infrastructure
+from backend.models import (
+    AgentPhase,
+    AttemptRecord,
+    IncidentRun,
+    IncidentStatus,
+    TimelineEvent,
+    VerificationCheck,
+    VerificationResult,
+    VerificationStatus,
+)
+from backend.verification.verifier import Verifier, verifier
 
 
-MAX_ATTEMPTS = 3
+_DEFAULT_SETTINGS = get_settings()
+MAX_ATTEMPTS = _DEFAULT_SETTINGS.max_attempts
 
 # Independent fresh telemetry samples taken after every action. Recovery is
 # only confirmed when every one of them is healthy.
-VERIFICATION_SAMPLES = 3
+VERIFICATION_SAMPLES = _DEFAULT_SETTINGS.verification_samples
 DEFAULT_GOAL = "Restore the service to configured SLOs while respecting safety constraints."
 MAX_ATTEMPTS_REASON = "Maximum remediation attempts exhausted"
 
@@ -33,9 +43,14 @@ class IncidentController:
         infrastructure=None,
         verification_interval_seconds=None,
         sleep_func=None,
+        settings=None,
     ):
+        supplied_settings = settings
+        self.settings = settings or get_settings()
+        self.safety_policy = policy if supplied_settings is None else SafetyPolicy(self.settings)
+        self.verification_engine = verifier if supplied_settings is None else Verifier(self.settings)
         if use_llm is None:
-            use_llm = os.getenv("LLM_ENABLED", "false").lower() == "true"
+            use_llm = self.settings.llm_enabled
 
         self.use_llm = use_llm
         self.llm_engine = llm_engine if llm_engine is not None else llm_decision_engine
@@ -48,11 +63,10 @@ class IncidentController:
         # chosen by configuration. The controller never knows which one it is.
         self._infrastructure = infrastructure
         self._observation_ids = itertools.count(1)
+        self.MAX_ATTEMPTS = self.settings.max_attempts
+        self.VERIFICATION_SAMPLES = self.settings.verification_samples
         if verification_interval_seconds is None:
-            verification_interval_seconds = os.getenv(
-                "VERIFICATION_INTERVAL_SECONDS",
-                "1",
-            )
+            verification_interval_seconds = self.settings.verification_interval_seconds
         self.verification_interval_seconds = float(verification_interval_seconds)
         if self.verification_interval_seconds < 0:
             raise ValueError("VERIFICATION_INTERVAL_SECONDS cannot be negative")
@@ -125,9 +139,9 @@ class IncidentController:
         if (
                 metrics.get("status") == "healthy"
                 and metrics.get("error_rate", 1.0)
-                <= verifier.MAX_ERROR_RATE
+                <= self.settings.recovery_max_error_rate
                 and metrics.get("latency_ms", 999999)
-                <= verifier.MAX_LATENCY_MS
+                <= self.settings.recovery_max_latency_ms
         ):
             return {
                 "action": "escalate",
@@ -233,8 +247,7 @@ class IncidentController:
         decision.setdefault("evidence", [])
         return decision
 
-    @staticmethod
-    def check_safety(decision):
+    def check_safety(self, decision, *, attempt=1, observations=None):
         """
         Evaluate a proposed remediation against the deterministic policy.
 
@@ -247,23 +260,78 @@ class IncidentController:
         if action == "escalate":
             return {
                 "action": "escalate",
+                "target": target,
+                "namespace": getattr(self.safety_policy, "ALLOWED_NAMESPACE", "incidentpilot"),
                 "checked": False,
                 "allowed": None,
+                "rule_id": "non_mutating_controller_decision",
+                "reason": "Escalation does not execute an infrastructure action.",
+                "bounds": {
+                    "min_replicas": getattr(self.safety_policy, "MIN_REPLICAS", 1),
+                    "max_replicas": getattr(self.safety_policy, "MAX_REPLICAS", 3),
+                },
+                "budget": {
+                    "attempt": max(1, attempt),
+                    "maximum": self.MAX_ATTEMPTS,
+                    "remaining_after_this_attempt": max(self.MAX_ATTEMPTS - attempt, 0),
+                },
+                "context": {},
             }
 
+        namespace = getattr(self.safety_policy, "ALLOWED_NAMESPACE", "incidentpilot")
+        history = []
+        current_version = None
+        if observations:
+            history = observations.get("deployment_history", []) or []
+            current_version = observations.get("current_version")
+        elif action == "rollback_deployment":
+            # Direct ``execute`` callers still receive the same safety checks
+            # as the full loop.
+            try:
+                history = self.infrastructure.get_deployment_history()
+                current_version = self.infrastructure.get_current_version()
+            except InfrastructureError:
+                history = []
+
+        if hasattr(self.safety_policy, "evaluate"):
+            result = self.safety_policy.evaluate(
+                action,
+                target=target,
+                namespace=namespace,
+                replicas=target if action == "scale_service" else None,
+                version=target if action == "rollback_deployment" else None,
+                attempt=attempt,
+                max_attempts=self.MAX_ATTEMPTS,
+                deployment_history=history,
+                current_version=current_version,
+            )
+            return result.to_dict() if hasattr(result, "to_dict") else dict(result)
+
         if action == "rollback_deployment":
-            allowed = policy.allows("rollback_deployment", version=target)
+            allowed = self.safety_policy.allows(action, version=target)
         elif action == "scale_service":
-            allowed = policy.allows("scale_service", replicas=target)
+            allowed = self.safety_policy.allows(action, replicas=target)
         else:
-            # Restart takes no arguments; anything unknown is denied by the
-            # policy's allow-list.
-            allowed = policy.allows(action)
+            allowed = self.safety_policy.allows(action)
 
         return {
             "action": action,
+            "target": target,
+            "namespace": namespace,
             "checked": True,
             "allowed": bool(allowed),
+            "rule_id": "allowed_action" if allowed else "action_denied",
+            "reason": "Action satisfies the deterministic policy." if allowed else "Action denied by deterministic policy.",
+            "bounds": {
+                "min_replicas": getattr(self.safety_policy, "MIN_REPLICAS", 1),
+                "max_replicas": getattr(self.safety_policy, "MAX_REPLICAS", 3),
+            },
+            "budget": {
+                "attempt": max(1, attempt),
+                "maximum": self.MAX_ATTEMPTS,
+                "remaining_after_this_attempt": max(self.MAX_ATTEMPTS - attempt, 0),
+            },
+            "context": {},
         }
 
     def execute(self, decision, safety_result=None):
@@ -295,10 +363,14 @@ class IncidentController:
         if not safety_result.get("allowed"):
             return {
                 "action": action,
+                "target": target,
                 "success": False,
                 "status": "blocked",
                 "policy_allowed": False,
-                "message": "Action blocked by safety policy.",
+                "message": safety_result.get(
+                    "reason",
+                    "Action blocked by safety policy.",
+                ),
             }
 
         if action == "rollback_deployment":
@@ -332,7 +404,7 @@ class IncidentController:
 
         return result
 
-    def verify(self):
+    def verify(self, metrics_before=None):
         """
         Verify the current service state using fresh telemetry.
 
@@ -351,12 +423,12 @@ class IncidentController:
         health = self.infrastructure.check_health()
         capacity = self.infrastructure.get_capacity()
 
-        result = verifier.verify_sustained(samples)
-
-        if result.recovered and not health.get("is_healthy", False):
-            result = result.with_failed_status(
-                "Health check still reports the service as unhealthy",
-            )
+        result = self.verification_engine.verify_sustained(
+            samples,
+            health=health,
+            capacity=capacity,
+            metrics_before=metrics_before,
+        )
 
         result.metrics_after = {
             **samples[-1],
@@ -372,7 +444,7 @@ class IncidentController:
 
         return result
 
-    def run_incident(
+    def _run_incident_legacy(
         self,
         on_event=None,
         run_id=None,
@@ -607,17 +679,16 @@ class IncidentController:
             "reason": reason,
         }
 
-    @staticmethod
-    def detect(observations):
+    def detect(self, observations):
         """Classify whether fresh telemetry represents an active incident."""
         metrics = observations.get("metrics", {})
         health = observations.get("health", {})
         signals = []
         if health.get("status") != "healthy":
             signals.append("health_check_failed")
-        if metrics.get("error_rate", 0) > verifier.MAX_ERROR_RATE:
+        if metrics.get("error_rate", 0) > self.settings.recovery_max_error_rate:
             signals.append("error_rate_breach")
-        if metrics.get("latency_ms", 0) > verifier.MAX_LATENCY_MS:
+        if metrics.get("latency_ms", 0) > self.settings.recovery_max_latency_ms:
             signals.append("latency_slo_breach")
         return {
             "incident_detected": bool(signals),
@@ -691,6 +762,560 @@ class IncidentController:
             "evidence_after_action": None,
             "new_evidence_after_action": None,
         }
+
+    def run_incident(
+        self,
+        on_event=None,
+        run_id=None,
+        goal=DEFAULT_GOAL,
+        started_at=None,
+    ):
+        """Run a validated, observable, and bounded response loop.
+
+        Timeline events belong to the run itself. ``on_event`` is merely a
+        live projection hook; omitting it never changes the audit history.
+        """
+
+        run_id = run_id or f"inc-{uuid4().hex}"
+        started_at = started_at or datetime.now(timezone.utc).isoformat()
+        run = IncidentRun(
+            incident_id=run_id,
+            goal=goal,
+            started_at=started_at,
+            status=IncidentStatus.RUNNING,
+            phase=AgentPhase.IDLE,
+            max_attempts=self.MAX_ATTEMPTS,
+        )
+        history = []
+        evidence_history = []
+        seen_evidence = set()
+        detected_once = False
+        infrastructure_failures = 0
+
+        observations = None
+        decision = None
+        action_result = None
+        verification = None
+        reason = None
+
+        def event_data(value):
+            if hasattr(value, "to_dict"):
+                return value.to_dict()
+            if isinstance(value, dict):
+                return {key: event_data(item) for key, item in value.items()}
+            if isinstance(value, (list, tuple)):
+                return [event_data(item) for item in value]
+            return value
+
+        def emit(phase, event_type, message, *, attempt=None, data=None, status=None):
+            phase = phase if isinstance(phase, AgentPhase) else AgentPhase(phase)
+            if status is not None:
+                run.status = status if isinstance(status, IncidentStatus) else IncidentStatus(status)
+            run.phase = phase
+            if attempt is not None:
+                run.attempt = max(0, int(attempt))
+            timeline_event = TimelineEvent(
+                incident_id=run_id,
+                attempt=run.attempt if attempt is None else attempt,
+                phase=phase,
+                event_type=event_type,
+                message=message,
+                data=event_data(data or {}),
+            )
+            run.timeline.append(timeline_event)
+            run.revision += 1
+            if on_event is not None:
+                on_event(
+                    phase.value,
+                    {
+                        "run_id": run_id,
+                        "goal": goal,
+                        "started_at": started_at,
+                        "status": run.status.value,
+                        "attempt": run.attempt,
+                        "reason": run.reason,
+                        "history": history,
+                        "event": timeline_event.to_dict(),
+                    },
+                )
+            return timeline_event
+
+        def record_attempt(
+            attempt_number,
+            current_observations,
+            detection,
+            current_diagnosis,
+            current_decision,
+            safety_result,
+            current_action_result,
+            current_verification,
+            new_evidence,
+        ):
+            record = self._record_attempt(
+                attempt_number,
+                current_observations,
+                detection,
+                current_diagnosis,
+                current_decision,
+                safety_result,
+                current_action_result,
+                current_verification,
+                new_evidence,
+            )
+            # Validate the production record before it becomes persistent run
+            # state, while retaining VerificationResult objects for callers of
+            # the Python controller API.
+            validated = AttemptRecord.model_validate(event_data(record))
+            history.append(record)
+            run.attempts.append(validated)
+            evidence_history.append(self._summarize_attempt(record))
+            run.attempt = len(history)
+            if current_verification is not None:
+                run.verification_results.append(current_verification)
+            return record
+
+        def failed_verification(message, *, before=None):
+            return VerificationResult(
+                status=VerificationStatus.FAILED,
+                recovered=False,
+                reason=message,
+                checks=[
+                    VerificationCheck(
+                        name="telemetry_available",
+                        passed=False,
+                        observed=False,
+                        expected=True,
+                        message=message,
+                    )
+                ],
+                samples=[],
+                sample_count=0,
+                metrics_before=before,
+                metrics_after=None,
+                telemetry={"error": message},
+            )
+
+        def finish(status, terminal_reason):
+            run.status = status if isinstance(status, IncidentStatus) else IncidentStatus(status)
+            run.reason = terminal_reason
+            run.outcome = run.status.value
+            run.completed_at = datetime.now(timezone.utc)
+            emit(
+                AgentPhase.COMPLETE,
+                "run_completed",
+                f"Incident run completed with status {run.status.value}.",
+                attempt=len(history),
+                data={"status": run.status.value, "reason": terminal_reason},
+            )
+            validated = run.to_dict()
+            # Compatibility fields mirror the latest attempt while API/runtime
+            # serialization remains fully JSON compatible.
+            return {
+                **validated,
+                "run_id": run_id,
+                "incident_id": run_id,
+                "phase": "complete",
+                "attempt": len(history),
+                "history": history,
+                "attempts": history,
+                "evidence_history": evidence_history,
+                "timeline": [item.to_dict() for item in run.timeline],
+                "trace_events": [item.to_dict() for item in run.timeline],
+                "observations": observations,
+                "decision": decision,
+                "action_result": action_result,
+                "verification": verification,
+                "status": run.status.value,
+                "reason": terminal_reason,
+            }
+
+        emit(
+            AgentPhase.OBSERVING,
+            "run_started",
+            "Incident response started; collecting a fresh service snapshot.",
+            attempt=0,
+        )
+
+        observation = None
+        detection = {"incident_detected": False, "signals": []}
+
+        while len(history) < self.MAX_ATTEMPTS:
+            next_attempt = len(history) + 1
+            if observation is None:
+                emit(
+                    AgentPhase.OBSERVING,
+                    "observation_started",
+                    "Reading fresh metrics, health, version, and capacity.",
+                    attempt=next_attempt,
+                )
+                try:
+                    observation = self.observe()
+                except InfrastructureError as error:
+                    infrastructure_failures += 1
+                    reason = f"Observation failed: {error}"
+                    emit(
+                        AgentPhase.REPLANNING,
+                        "tool_error",
+                        reason,
+                        attempt=len(history),
+                        data={"tool": "observe", "error_type": type(error).__name__},
+                    )
+                    if infrastructure_failures >= self.MAX_ATTEMPTS:
+                        break
+                    continue
+
+                detection = self.detect(observation)
+                run.telemetry = dict(observation)
+                run.symptoms = list(detection["signals"])
+                emit(
+                    AgentPhase.OBSERVING,
+                    "observation_collected",
+                    "Fresh service state collected.",
+                    attempt=next_attempt,
+                    data={"observation": observation, "detection": detection},
+                )
+
+                if not detection["incident_detected"]:
+                    if not detected_once:
+                        reason = "Service is within configured recovery SLOs; no action is required."
+                        emit(
+                            AgentPhase.COMPLETE,
+                            "no_incident",
+                            reason,
+                            attempt=0,
+                            status=IncidentStatus.NO_INCIDENT,
+                            data={"detection": detection},
+                        )
+                        return finish(IncidentStatus.NO_INCIDENT, reason)
+
+                    # An incident disappeared between attempts. Verify rather
+                    # than treating one observation as recovery proof.
+                    emit(
+                        AgentPhase.VERIFYING,
+                        "verification_started",
+                        "Service looks healthy; confirming sustained recovery.",
+                        attempt=len(history),
+                    )
+                    try:
+                        verification = self.verify(
+                            metrics_before=dict(observation.get("metrics", {}))
+                        )
+                    except InfrastructureError as error:
+                        verification = failed_verification(
+                            f"Verification telemetry unavailable: {error}",
+                            before=observation.get("metrics"),
+                        )
+                    if verification.recovered:
+                        reason = verification.reason
+                        emit(
+                            AgentPhase.RESOLVED,
+                            "incident_resolved",
+                            reason,
+                            attempt=len(history),
+                            status=IncidentStatus.RESOLVED,
+                            data={"verification": verification},
+                        )
+                        return finish(IncidentStatus.RESOLVED, reason)
+                    observation = None
+                    continue
+
+                detected_once = True
+                emit(
+                    AgentPhase.INCIDENT_DETECTED,
+                    "incident_detected",
+                    "Telemetry breaches the configured incident boundary.",
+                    attempt=next_attempt,
+                    data={"signals": detection["signals"]},
+                )
+
+            emit(
+                AgentPhase.INVESTIGATING,
+                "investigation_started",
+                "Querying diagnostic logs and deployment history.",
+                attempt=next_attempt,
+            )
+            try:
+                observations = self.investigate(observation)
+            except InfrastructureError as error:
+                infrastructure_failures += 1
+                reason = f"Investigation failed: {error}"
+                emit(
+                    AgentPhase.REPLANNING,
+                    "tool_error",
+                    reason,
+                    attempt=len(history),
+                    data={"tool": "investigate", "error_type": type(error).__name__},
+                )
+                observation = None
+                if infrastructure_failures >= self.MAX_ATTEMPTS:
+                    break
+                continue
+
+            observations["attempt_history"] = [dict(entry) for entry in evidence_history]
+            if evidence_history:
+                observations["previous_attempt"] = dict(evidence_history[-1])
+
+            evidence_ids = [item["id"] for item in observations.get("evidence", [])]
+            new_evidence = [item_id for item_id in evidence_ids if item_id not in seen_evidence]
+            if history:
+                history[-1]["evidence_after_action"] = list(observations.get("evidence", []))
+                history[-1]["new_evidence_after_action"] = list(new_evidence)
+                evidence_history[-1]["evidence_after_action"] = list(evidence_ids)
+                evidence_history[-1]["new_evidence_after_action"] = list(new_evidence)
+            seen_evidence.update(evidence_ids)
+
+            emit(
+                AgentPhase.INVESTIGATING,
+                "evidence_collected",
+                f"Collected {len(evidence_ids)} evidence item(s).",
+                attempt=next_attempt,
+                data={"evidence": observations.get("evidence", []), "new_evidence": new_evidence},
+            )
+            emit(
+                AgentPhase.DIAGNOSING,
+                "diagnosis_started",
+                "Ranking causal hypotheses from observed evidence.",
+                attempt=next_attempt,
+            )
+            diagnosis = self.diagnose(observations)
+            run.diagnosis = diagnosis
+            emit(
+                AgentPhase.DIAGNOSING,
+                "diagnosis_completed",
+                diagnosis.get("summary", "Diagnosis completed."),
+                attempt=next_attempt,
+                data={"diagnosis": diagnosis},
+            )
+
+            emit(
+                AgentPhase.PLANNING,
+                "planning_started",
+                "Selecting an evidence-backed bounded response.",
+                attempt=next_attempt,
+            )
+            decision = dict(self.decide(observations, diagnosis))
+            decision.setdefault("parameters", {})
+            decision.setdefault("evidence", [])
+            run.selected_action = decision
+            emit(
+                AgentPhase.PLANNING,
+                "action_proposed" if decision.get("action") != "escalate" else "no_safe_action",
+                decision.get("reason", "Decision completed."),
+                attempt=next_attempt if decision.get("action") != "escalate" else len(history),
+                data={"decision": decision},
+            )
+
+            if decision.get("action") == "escalate":
+                reason = decision.get("reason", "No safe remediation could be determined.")
+                emit(
+                    AgentPhase.ESCALATED,
+                    "incident_escalated",
+                    reason,
+                    attempt=len(history),
+                    status=IncidentStatus.ESCALATED,
+                    data={"decision": decision},
+                )
+                return finish(IncidentStatus.ESCALATED, reason)
+
+            attempt_number = len(history) + 1
+            emit(
+                AgentPhase.SAFETY_CHECK,
+                "safety_check_started",
+                "Evaluating the proposed action against deterministic policy.",
+                attempt=attempt_number,
+                data={"action": decision.get("action"), "target": decision.get("target")},
+            )
+            safety_result = self.check_safety(
+                decision,
+                attempt=attempt_number,
+                observations=observations,
+            )
+            safety_event = "safety_approved" if safety_result.get("allowed") else "safety_rejected"
+            emit(
+                AgentPhase.SAFETY_CHECK,
+                safety_event,
+                safety_result.get("reason", "Safety policy evaluated."),
+                attempt=attempt_number,
+                data={"safety": safety_result},
+            )
+
+            if not safety_result.get("allowed"):
+                action_result = self.execute(decision, safety_result=safety_result)
+                record_attempt(
+                    attempt_number,
+                    observations,
+                    detection,
+                    diagnosis,
+                    decision,
+                    safety_result,
+                    action_result,
+                    None,
+                    new_evidence,
+                )
+                reason = safety_result.get("reason", action_result.get("message"))
+                emit(
+                    AgentPhase.BLOCKED,
+                    "action_blocked",
+                    reason,
+                    attempt=attempt_number,
+                    status=IncidentStatus.BLOCKED,
+                    data={"safety": safety_result, "action_result": action_result},
+                )
+                return finish(IncidentStatus.BLOCKED, reason)
+
+            emit(
+                AgentPhase.EXECUTING,
+                "action_started",
+                f"Executing {decision['action']} after policy approval.",
+                attempt=attempt_number,
+                data={"decision": decision},
+            )
+            try:
+                action_result = self.execute(decision, safety_result=safety_result)
+            except InfrastructureError as error:
+                action_result = {
+                    "action": decision["action"],
+                    "target": decision.get("target"),
+                    "success": False,
+                    "status": "failed",
+                    "policy_allowed": True,
+                    "message": f"Infrastructure action failed: {error}",
+                    "error_type": type(error).__name__,
+                }
+
+            run.attempted_actions.append({
+                "attempt": attempt_number,
+                "action": decision.get("action"),
+                "target": decision.get("target"),
+                "success": bool(action_result.get("success")),
+            })
+            event_type = "action_completed" if action_result.get("success") else "action_failed"
+            emit(
+                AgentPhase.EXECUTING,
+                event_type,
+                action_result.get("message", "Infrastructure action completed."),
+                attempt=attempt_number,
+                data={"action_result": action_result},
+            )
+
+            if not action_result.get("success"):
+                run.failed_actions.append(dict(run.attempted_actions[-1]))
+                record_attempt(
+                    attempt_number,
+                    observations,
+                    detection,
+                    diagnosis,
+                    decision,
+                    safety_result,
+                    action_result,
+                    None,
+                    new_evidence,
+                )
+                if len(history) >= self.MAX_ATTEMPTS:
+                    reason = MAX_ATTEMPTS_REASON
+                    break
+                emit(
+                    AgentPhase.REPLANNING,
+                    "replanning",
+                    "The action did not execute successfully; observing again before replanning.",
+                    attempt=attempt_number,
+                    data={"previous_attempt": evidence_history[-1]},
+                )
+                observation = None
+                continue
+
+            emit(
+                AgentPhase.VERIFYING,
+                "verification_started",
+                "Action completed; collecting independent fresh recovery evidence.",
+                attempt=attempt_number,
+                data={"action_result": action_result},
+            )
+            try:
+                verification = self.verify(
+                    metrics_before=dict(observation.get("metrics", {}))
+                )
+                if verification.metrics_after:
+                    verification.deltas = {
+                        "error_rate": round(
+                            float(verification.metrics_after.get("error_rate", 0))
+                            - float(verification.metrics_before.get("error_rate", 0)),
+                            4,
+                        ),
+                        "latency_ms": (
+                            verification.metrics_after.get("latency_ms", 0)
+                            - verification.metrics_before.get("latency_ms", 0)
+                        ),
+                    }
+            except InfrastructureError as error:
+                verification = failed_verification(
+                    f"Verification telemetry unavailable: {error}",
+                    before=observation.get("metrics", {}),
+                )
+
+            record_attempt(
+                attempt_number,
+                observations,
+                detection,
+                diagnosis,
+                decision,
+                safety_result,
+                action_result,
+                verification,
+                new_evidence,
+            )
+            verification_status = (
+                verification.status.value
+                if hasattr(verification.status, "value")
+                else str(verification.status)
+            )
+            emit(
+                AgentPhase.VERIFYING,
+                f"verification_{verification_status}",
+                verification.reason,
+                attempt=attempt_number,
+                data={"verification": verification},
+            )
+
+            if verification.recovered:
+                reason = verification.reason
+                emit(
+                    AgentPhase.RESOLVED,
+                    "incident_resolved",
+                    reason,
+                    attempt=attempt_number,
+                    status=IncidentStatus.RESOLVED,
+                    data={"verification": verification},
+                )
+                return finish(IncidentStatus.RESOLVED, reason)
+
+            run.failed_actions.append(dict(run.attempted_actions[-1]))
+            if len(history) >= self.MAX_ATTEMPTS:
+                reason = MAX_ATTEMPTS_REASON
+                break
+
+            emit(
+                AgentPhase.REPLANNING,
+                "replanning",
+                "Recovery was not verified; collecting fresh evidence before choosing again.",
+                attempt=attempt_number,
+                data={
+                    "verification_status": verification_status,
+                    "previous_attempt": evidence_history[-1],
+                },
+            )
+            observation = None
+
+        reason = reason or MAX_ATTEMPTS_REASON
+        emit(
+            AgentPhase.ESCALATED,
+            "incident_escalated",
+            reason,
+            attempt=len(history),
+            status=IncidentStatus.ESCALATED,
+            data={"attempts": len(history), "infrastructure_failures": infrastructure_failures},
+        )
+        return finish(IncidentStatus.ESCALATED, reason)
 
 
 controller = IncidentController()

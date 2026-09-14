@@ -6,13 +6,13 @@ Action success reports execution only; recovery is decided by fresh diagnostics.
 from typing import Dict, List, Union
 
 from backend.shared import slo
-from backend.simulator import service
+from backend.simulator.environment import simulator
 from backend.tools import diagnostics
 
 MIN_REPLICAS: int = slo.MIN_REPLICAS
 MAX_REPLICAS: int = slo.MAX_REPLICAS
 
-# Replica count is simulator state (backend/simulator/service.py): provisioned
+# Replica count is simulator state: provisioned
 # capacity is one of the causes the simulator derives service health from.
 # None of the tools below know which scenario is active - each one applies
 # only the effect its real-world counterpart would have.
@@ -20,17 +20,17 @@ MAX_REPLICAS: int = slo.MAX_REPLICAS
 
 def reset_replicas() -> int:
     """Restore the baseline replica count for ``POST /reset``."""
-    service.set_replicas(MIN_REPLICAS)
-    return service.get_replicas()
+    simulator.scale(MIN_REPLICAS)
+    return simulator.get_replicas()
 
 
 def restart_service() -> Dict[str, Union[str, bool]]:
     """Clear transient process state without claiming recovery."""
-    cleared = service.clear_transient_failure()
+    cleared, mutation = simulator.clear_transient_failure()
 
     if cleared:
         detail = "Transient state was cleared."
-    elif service.deployment_regression_active():
+    elif simulator.deployment_regression_active():
         detail = (
             "The restart completed, but the incident cause is still "
             "deployed, so transient state could not be cleared."
@@ -49,6 +49,9 @@ def restart_service() -> Dict[str, Union[str, bool]]:
             "Verify current status separately, e.g. with "
             "diagnostics.check_health()."
         ),
+        "observed_at": mutation["observed_at"],
+        "before": mutation["before"],
+        "after": mutation["after"],
     }
 
 
@@ -57,7 +60,7 @@ def rollback_deployment(version: str) -> Dict[str, Union[str, bool, None]]:
     known_versions: List[str] = [
         record["version"] for record in diagnostics.get_deployment_history()
     ]
-    previous_version = service.state.current_version
+    previous_version = simulator.state.current_version
 
     if version not in known_versions:
         return {
@@ -73,7 +76,7 @@ def rollback_deployment(version: str) -> Dict[str, Union[str, bool, None]]:
             "current_version": previous_version,
         }
 
-    service.simulate_rollback(version)
+    mutation = simulator.rollback(version)
 
     return {
         "action": "rollback_deployment",
@@ -88,6 +91,9 @@ def rollback_deployment(version: str) -> Dict[str, Union[str, bool, None]]:
         "requested_version": version,
         "previous_version": previous_version,
         "current_version": version,
+        "observed_at": mutation["observed_at"],
+        "before": mutation["before"],
+        "after": mutation["after"],
     }
 
 
@@ -103,10 +109,10 @@ def scale_service(replicas: int) -> Dict[str, Union[str, bool, int]]:
                 f"range [{MIN_REPLICAS}, {MAX_REPLICAS}]."
             ),
             "requested_replicas": replicas,
-            "current_replicas": service.get_replicas(),
+            "current_replicas": simulator.get_replicas(),
         }
 
-    service.set_replicas(replicas)
+    mutation = simulator.scale(replicas)
 
     return {
         "action": "scale_service",
@@ -119,8 +125,11 @@ def scale_service(replicas: int) -> Dict[str, Union[str, bool, int]]:
         ),
         "requested_replicas": replicas,
         "current_replicas": replicas,
+        "observed_at": mutation["observed_at"],
+        "before": mutation["before"],
+        "after": mutation["after"],
     }
 
 
 def get_current_replicas() -> int:
-    return service.get_replicas()
+    return simulator.get_replicas()

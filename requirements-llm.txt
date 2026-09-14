@@ -1,0 +1,4 @@
+# Optional Hugging Face/Qwen decision proposals (LLM_ENABLED=true).
+-r requirements.txt
+
+huggingface_hub==0.26.2

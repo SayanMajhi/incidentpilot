@@ -96,6 +96,8 @@ class KubernetesInfrastructure(Infrastructure):
                     "The gateway must be configured with the adapter's own settings."
                 )
         self._gateway = gateway
+        self._last_metrics: Dict[str, Any] | None = None
+        self._last_metrics_at = 0.0
 
     @property
     def gateway(self) -> KubernetesGateway:
@@ -233,7 +235,7 @@ class KubernetesInfrastructure(Infrastructure):
                 and latency_ms <= slo.RECOVERY_MAX_LATENCY_MS
         )
 
-        return {
+        result = {
             "status": "healthy" if healthy else "down",
             "error_rate": error_rate,
             "latency_ms": latency_ms,
@@ -246,9 +248,21 @@ class KubernetesInfrastructure(Infrastructure):
             "probe_samples": len(samples),
             "source": "kubernetes_service_probe",
         }
+        # ``observe`` and ``verify`` request metrics immediately followed by
+        # health. Reuse that exact probe batch so one logical snapshot cannot
+        # disagree with itself or double Kubernetes traffic.
+        self._last_metrics = dict(result)
+        self._last_metrics_at = time.monotonic()
+        return result
 
     def check_health(self) -> Dict[str, Any]:
-        status = self.get_metrics()["status"]
+        if self._last_metrics is not None and time.monotonic() - self._last_metrics_at <= 1.0:
+            metrics = self._last_metrics
+            self._last_metrics = None
+        else:
+            metrics = self.get_metrics()
+            self._last_metrics = None
+        status = metrics["status"]
         return {"status": status, "is_healthy": status == "healthy"}
 
     def get_current_version(self) -> str:

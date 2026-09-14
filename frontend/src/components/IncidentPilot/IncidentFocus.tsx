@@ -13,7 +13,7 @@ export const IncidentFocus: React.FC<IncidentFocusProps> = ({ service, summary, 
   const isHealthy = service.status === 'healthy';
   const title = hasIncident ? 'Current incident' : isHealthy ? 'No active incident' : 'Awaiting live service state';
   const description = hasIncident
-    ? `${summary.scenario}: ${decision.reason}`
+    ? `${summary.scenario}: ${summary.diagnosisSummary}`
     : summary.finalOutcome !== 'None'
       ? `Last run: ${summary.finalOutcome}. ${verification.reason}`
       : 'The service is healthy. Select a demo scenario to begin an incident workflow.';
@@ -31,8 +31,10 @@ export const IncidentFocus: React.FC<IncidentFocusProps> = ({ service, summary, 
         </span>
       </div>
       <dl className="incident-focus-facts">
-        <div><dt>Suspected cause</dt><dd>{decision.reason}</dd></div>
+        <div><dt>Suspected cause</dt><dd>{summary.diagnosisCause}</dd></div>
+        <div><dt>Diagnosis summary</dt><dd>{summary.diagnosisSummary}</dd></div>
         <div><dt>Chosen action</dt><dd>{decision.action}</dd></div>
+        <div><dt>Action rationale</dt><dd>{decision.reason}</dd></div>
         <div><dt>Verification</dt><dd>{verification.reason}</dd></div>
       </dl>
     </section>

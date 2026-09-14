@@ -2,7 +2,7 @@
 
 from typing import Dict, List, Union
 
-from backend.simulator import service
+from backend.simulator.environment import simulator
 
 
 _HEALTHY_LOG_TEMPLATE: List[Dict[str, str]] = [
@@ -107,38 +107,36 @@ _DEPLOYMENT_HISTORY: List[Dict[str, Union[str, int]]] = [
 def get_metrics() -> Dict[str, Union[str, float, int]]:
     """Read the current metrics from the simulator."""
 
-    metrics = service.get_metrics()
+    state = simulator.state
 
     return {
-        "status": metrics.status,
-        "error_rate": metrics.error_rate,
-        "latency_ms": metrics.latency_ms,
-        "cpu_percent": metrics.cpu_percent,
-        "memory_percent": metrics.memory_percent,
+        "status": state.status,
+        "error_rate": state.error_rate,
+        "latency_ms": state.latency_ms,
+        "cpu_percent": simulator.cpu_percent(),
+        "memory_percent": simulator.memory_percent(),
     }
 
 
 def check_health() -> Dict[str, Union[str, bool]]:
     """Check whether the simulated service is currently healthy."""
 
-    health = service.get_health()
+    state = simulator.state
 
     return {
-        "status": health.status,
-        "is_healthy": health.status == "healthy",
+        "status": state.status,
+        "is_healthy": state.status == "healthy",
     }
 
 
 def get_current_version() -> str:
-    version = service.get_version()
-
-    return version.current_version
+    return simulator.state.current_version
 
 
 def _capacity_pressure_logs() -> List[Dict[str, str]]:
     """Logs a service emits while demand exceeds its provisioned capacity."""
-    replicas = service.get_replicas()
-    utilization_pct = int(round(service.capacity_utilization() * 100))
+    replicas = simulator.get_replicas()
+    utilization_pct = int(round(simulator.capacity_utilization() * 100))
 
     return [
         {
@@ -187,25 +185,25 @@ def query_logs() -> List[Dict[str, str]]:
     can reveal evidence that simply was not observable before.
     """
 
-    if service.state.status == "healthy":
+    if simulator.state.status == "healthy":
         return [
             dict(entry)
             for entry in _HEALTHY_LOG_TEMPLATE
         ]
 
-    if service.transient_fault_active():
+    if simulator.transient_fault_active():
         return [
             dict(entry)
             for entry in _OUTAGE_LOG_TEMPLATE
         ]
 
-    if service.deployment_regression_active():
+    if simulator.deployment_regression_active():
         return [
             dict(entry)
             for entry in _BAD_DEPLOYMENT_LOG_TEMPLATE
         ]
 
-    if service.capacity_utilization() > 1.0:
+    if simulator.capacity_utilization() > 1.0:
         return _capacity_pressure_logs()
 
     return [
@@ -221,9 +219,9 @@ def get_capacity() -> Dict[str, Union[str, int, float, None]]:
     utilization reading is unavailable rather than invented.
     """
 
-    replicas = service.get_replicas()
+    replicas = simulator.get_replicas()
 
-    if service.transient_fault_active():
+    if simulator.transient_fault_active():
         return {
             "replicas": replicas,
             "utilization": None,
@@ -232,7 +230,7 @@ def get_capacity() -> Dict[str, Union[str, int, float, None]]:
 
     return {
         "replicas": replicas,
-        "utilization": service.capacity_utilization(),
+        "utilization": simulator.capacity_utilization(),
         "telemetry": "available",
     }
 

@@ -22,7 +22,7 @@ export const TelemetryDashboard: React.FC<TelemetryDashboardProps> = ({
   // rather than substituting healthy-looking placeholder values.
   const hasTelemetry = simState.status !== 'unknown';
   const status = simState.status;
-  const isDown = status === 'down';
+  const isDown = status === 'down' || status === 'degraded';
   const statusDesc = !hasTelemetry
     ? 'Awaiting backend telemetry'
     : isOffline
@@ -32,17 +32,17 @@ export const TelemetryDashboard: React.FC<TelemetryDashboardProps> = ({
     : 'All SLO objectives nominal';
 
   const errRateFormatted = hasTelemetry ? `${(simState.error_rate * 100).toFixed(1)}%` : EM_DASH;
-  const isErrSpike = hasTelemetry && simState.error_rate > config.elevated.error_rate;
+  const isErrSpike = hasTelemetry && simState.error_rate > config.slo.incident_error_rate;
 
-  const isLatSpike = hasTelemetry && simState.latency_ms > config.elevated.latency_ms;
+  const isLatSpike = hasTelemetry && simState.latency_ms > config.slo.incident_latency_ms;
   const cpu = hasTelemetry && typeof simState.cpu_percent === 'number'
     ? `${simState.cpu_percent.toFixed(0)}%`
     : EM_DASH;
 
   const version = simState.current_version || EM_DASH;
-  const versionDesc = version === config.bad_deployment_version
+  const versionDesc = version === config.simulator?.bad_deployment_version
     ? 'Incident trigger deployment'
-    : version === config.baseline.version
+    : version === config.simulator?.healthy_version
     ? 'Stable build'
     : 'Deployed build';
 
@@ -78,8 +78,8 @@ export const TelemetryDashboard: React.FC<TelemetryDashboardProps> = ({
             {errRateFormatted}
           </div>
           <span className="hud-subtext">
-            Alert above {(config.elevated.error_rate * 100).toFixed(1)}% · SLO{' '}
-            {(config.recovery.max_error_rate * 100).toFixed(1)}%
+            Incident above {(config.slo.incident_error_rate * 100).toFixed(1)}% · recovery at{' '}
+            {(config.slo.recovery_max_error_rate * 100).toFixed(1)}%
           </span>
         </div>
 
@@ -96,7 +96,7 @@ export const TelemetryDashboard: React.FC<TelemetryDashboardProps> = ({
             )}
           </div>
           <span className="hud-subtext">
-            Alert above {config.elevated.latency_ms}ms · SLO {config.recovery.max_latency_ms}ms
+            Incident above {config.slo.incident_latency_ms}ms · recovery at {config.slo.recovery_max_latency_ms}ms
           </span>
         </div>
 

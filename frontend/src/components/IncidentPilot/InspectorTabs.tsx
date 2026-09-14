@@ -38,7 +38,8 @@ export const InspectorTabs: React.FC<InspectorTabsProps> = ({ summary, decision,
           <Row label="Active scenario" value={summary.scenario} /><Row label="Agent status" value={summary.agentStatus} />
           <Row label="Total attempts" value={summary.attempts} /><Row label="Final action" value={summary.finalAction} />
           <Row label="Final verification" value={summary.finalVerification} /><Row label="Final outcome" value={summary.finalOutcome} />
-          <Row label="Diagnosis" value={summary.diagnosis} /><Row label="Evidence" value={summary.evidence} />
+          <Row label="Probable cause" value={summary.diagnosisCause} /><Row label="Diagnosis" value={summary.diagnosisSummary} />
+          <Row label="Evidence" value={summary.evidence} />
         </dl>}
         {activeTab === 'decision' && <dl>
           <Row label="Source" value={decision.source} /><Row label="Proposed action" value={decision.action} />
@@ -49,14 +50,27 @@ export const InspectorTabs: React.FC<InspectorTabsProps> = ({ summary, decision,
         </dl>}
         {activeTab === 'safety' && <dl>
           <Row label="Status" value={safety.status} /><Row label="Action checked" value={safety.action} />
-          <Row label="Verdict" value={safety.verdict} /><Row label="Policy notes" value={safety.reason} />
+          <Row label="Target" value={safety.target} /><Row label="Verdict" value={safety.verdict} />
+          <Row label="Rule ID" value={safety.ruleId} /><Row label="Policy reason" value={safety.reason} />
+          <Row label="Namespace" value={safety.namespace} /><Row label="Replica bounds" value={safety.bounds} />
+          <Row label="Attempt budget" value={safety.attemptBudget} /><Row label="Executed" value={safety.executed} />
         </dl>}
-        {activeTab === 'verification' && <dl>
-          <Row label="Status" value={verification.status} /><Row label="Recovered" value={verification.recovered} />
-          <Row label="Telemetry result" value={verification.reason} /><Row label="Error rate" value={verification.errorRate} />
-          <Row label="Latency" value={verification.latency} /><Row label="Live status" value={verification.serviceStatus} />
-          <Row label="Metrics before" value={verification.metricsBefore} /><Row label="Metrics after" value={verification.metricsAfter} />
-        </dl>}
+        {activeTab === 'verification' && <>
+          <dl>
+            <Row label="Status" value={verification.status} /><Row label="Recovered" value={verification.recovered} />
+            <Row label="Telemetry result" value={verification.reason} /><Row label="Error rate" value={verification.errorRate} />
+            <Row label="Latency" value={verification.latency} /><Row label="Live status" value={verification.serviceStatus} />
+            <Row label="Metrics before" value={verification.metricsBefore} /><Row label="Metrics after" value={verification.metricsAfter} />
+            <Row label="Before/after delta" value={verification.deltas} /><Row label="Samples" value={verification.samples} />
+          </dl>
+          {verification.checks.length > 0 && <section className="verification-checks" aria-label="Named recovery checks">
+            <h3>Named recovery checks</h3>
+            {verification.checks.map((check) => <div className={`verification-check ${check.passed ? 'passed' : 'failed'}`} key={check.id}>
+              <span aria-hidden="true">{check.passed ? '✓' : '✕'}</span>
+              <div><strong>{check.label}</strong><p>{check.detail}</p></div>
+            </div>)}
+          </section>}
+        </>}
         {activeTab === 'logs' && <div className="logs-container" role="log" aria-label="System diagnostic logs">
           {logs.length ? logs.map((log) => <div key={log.id} className="log-line"><span className="log-time">{log.time}</span><span className={`log-level ${log.level}`}>{log.level}</span><span className="log-msg">{log.message}</span></div>) : <p className="inspector-empty">No diagnostic logs have been received.</p>}
         </div>}

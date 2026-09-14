@@ -42,7 +42,6 @@ function ResponseLifecyclePreview() {
 
   return (
     <figure className="pipeline-container lifecycle-preview">
-      {/* Reverse loop arrow from Adapt back to Investigate */}
       <div className={`pipeline-loopback-arc ${isLoopingBack ? 'active' : ''}`}>
         <span className="loopback-label">↻ Feedback Loop to Investigate</span>
         <svg viewBox="0 0 540 60" className="loopback-svg">
@@ -62,7 +61,6 @@ function ResponseLifecyclePreview() {
           const isActive = idx === current.index;
           const isFailed = isActive && current.isFailed;
           const isRecoveredActive = isActive && current.isSuccess;
-          // Arrow tabhi dikhega jab current stage chal raha hoga
           const isCurrentActiveArrow = idx === current.index && !current.isFailed && !current.isSuccess;
           const isPassed = current.isSuccess ? true : idx < current.index;
 
@@ -102,6 +100,7 @@ function ResponseLifecyclePreview() {
             : 'status-live-text'
         }`}
       >
+        <span className="preview-label">Illustrative demo sequence</span>
         {current.status}
       </figcaption>
     </figure>
@@ -142,8 +141,8 @@ function HumanAgentGesture() {
         <path className="gesture-bolt" d="M183 35 L172 51 H180 L177 63 L189 46 H181 Z" fill="#E0E7FF" />
       </svg>
       <figcaption id="gesture-caption">
-        <strong>Human control. Agent assistance.</strong>
-        <span>The agent proposes; people retain control.</span>
+        <strong>Bounded autonomy. Human oversight.</strong>
+        <span>Policy constrains execution; operators retain override and escalation control.</span>
       </figcaption>
     </figure>
   );

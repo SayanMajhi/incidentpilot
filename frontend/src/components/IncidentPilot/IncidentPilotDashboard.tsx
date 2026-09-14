@@ -29,6 +29,7 @@ export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
     connectionStatus,
     checkConnection,
     config,
+    environment,
     simState,
     currentReplicas,
     lastSyncTime,
@@ -36,6 +37,9 @@ export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
     triggerScenario,
     resetSystem,
     runIncident,
+    testSafetyGate,
+    safetyAssessment,
+    safetyChallenge,
     agentPhase,
     isRunningAgent,
     runLabel,
@@ -44,6 +48,7 @@ export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
     safety,
     verification,
     attempts,
+    events,
     resolutionBanner,
     telemetryBuffer,
     maxSamples,
@@ -69,7 +74,7 @@ export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
         backendUrl={backendUrl}
         onUrlChange={setBackendUrl}
         connectionStatus={connectionStatus}
-        onPing={() => void checkConnection()}
+        onPing={(url) => void checkConnection(url)}
       />
 
       <BackendAlert
@@ -112,8 +117,9 @@ export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
 
         <LifecycleStrip
           service={simState}
-          attempts={attempts}
-          isRecovered={verification.isRecoveredBool === true}
+          events={events}
+          phase={agent.phase}
+          status={agent.status}
           isRunning={isRunningAgent}
         />
 
@@ -121,10 +127,14 @@ export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
           onSelectScenario={triggerScenario}
           onReset={resetSystem}
           onRunIncident={runIncident}
+          onTestSafetyGate={testSafetyGate}
           isRunning={isRunningAgent}
           runLabel={runLabel}
           disabled={isOffline}
           activeScenario={activeScenario}
+          environment={environment}
+          safetyAssessment={safetyAssessment}
+          safetyChallenge={safetyChallenge}
         />
 
         <CorePrincipleBanner />
@@ -133,6 +143,7 @@ export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
           <div className="timeline-column">
             <AgentExecutionTimeline
               attempts={attempts}
+              events={events}
               resolutionBanner={resolutionBanner}
               summaryAgentStatus={summary.agentStatus}
               selectedAttemptNumber={selectedAttempt?.number ?? null}
@@ -144,6 +155,7 @@ export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
               telemetryBuffer={telemetryBuffer}
               maxSamples={maxSamples}
               config={config}
+              environment={environment}
             />
           </div>
 
@@ -158,7 +170,7 @@ export const IncidentPilotDashboard: React.FC<IncidentPilotDashboardProps> = ({
         </div>
       </main>
 
-      <Footer />
+      <Footer environment={environment} />
     </div>
   );
 };

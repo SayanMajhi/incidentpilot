@@ -1,7 +1,9 @@
 import type {
+  ApiHealthResponse,
   IncidentStatusResponse,
   RunIncidentResponse,
   RuntimeConfig,
+  SafetyAssessment,
   SimulationActionResponse,
   TimelineResponse,
 } from '../types/incidentPilot';
@@ -11,10 +13,7 @@ const FALLBACK_BASE_URL = 'http://127.0.0.1:8000';
 
 export const DEFAULT_BASE_URL = normalizeBaseUrl(ENV_BASE_URL || FALLBACK_BASE_URL);
 
-/** Default request budget. `/run-incident` runs the whole bounded loop, so it
- *  is given a much longer one. */
 const DEFAULT_TIMEOUT_MS = 5_000;
-const RUN_INCIDENT_TIMEOUT_MS = 30_000;
 
 export class ApiError extends Error {
   constructor(
@@ -90,6 +89,10 @@ export function fetchConfig(baseUrl: string, signal?: AbortSignal): Promise<Runt
   return request<RuntimeConfig>(baseUrl, '/config', { signal });
 }
 
+export function fetchHealth(baseUrl: string, signal?: AbortSignal): Promise<ApiHealthResponse> {
+  return request<ApiHealthResponse>(baseUrl, '/health', { signal });
+}
+
 export function fetchStatus(baseUrl: string, signal?: AbortSignal): Promise<IncidentStatusResponse> {
   return request<IncidentStatusResponse>(baseUrl, '/status', { signal });
 }
@@ -114,7 +117,18 @@ export function runIncident(baseUrl: string, signal?: AbortSignal): Promise<RunI
   return request<RunIncidentResponse>(baseUrl, '/run-incident', {
     method: 'POST',
     signal,
-    timeoutMs: RUN_INCIDENT_TIMEOUT_MS,
+  });
+}
+
+export function evaluateSafety(
+  baseUrl: string,
+  requestBody: { action: string; target: number | string | null; namespace: string },
+  signal?: AbortSignal,
+): Promise<SafetyAssessment> {
+  return request<SafetyAssessment>(baseUrl, '/safety/evaluate', {
+    method: 'POST',
+    body: JSON.stringify(requestBody),
+    signal,
   });
 }
 

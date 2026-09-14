@@ -11,9 +11,11 @@ made on first use, so importing the backend cannot fail just because a
 cluster is not running.
 """
 
-import os
 from typing import Optional
 
+from pydantic import ValidationError
+
+from backend.config import IncidentPilotSettings
 from backend.infrastructure.base import Infrastructure, InfrastructureError
 
 SIMULATOR = "simulator"
@@ -26,12 +28,13 @@ _cached: Optional[Infrastructure] = None
 
 def selected_environment() -> str:
     """Return the configured environment name, validated."""
-    value = (os.getenv("ENVIRONMENT") or DEFAULT_ENVIRONMENT).strip().lower()
-    if value not in SUPPORTED_ENVIRONMENTS:
+    try:
+        value = IncidentPilotSettings().environment.value
+    except ValidationError as error:
         raise InfrastructureError(
-            f"Unsupported ENVIRONMENT={value!r}. "
+            "Unsupported ENVIRONMENT. "
             f"Supported values: {', '.join(SUPPORTED_ENVIRONMENTS)}."
-        )
+        ) from error
     return value
 
 

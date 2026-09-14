@@ -208,6 +208,7 @@ def test_run_incident_status_is_blocked_for_unsafe_decision():
         "reason": "Forced unsafe decision for blocked-status test",
         "confidence": 1.0,
     }
+    service.simulate_outage()
 
     with patch.object(controller, "decide", return_value=unsafe_decision):
         result = controller.run_incident()
@@ -217,16 +218,17 @@ def test_run_incident_status_is_blocked_for_unsafe_decision():
     assert result["status"] == "blocked"
 
 
-def test_run_incident_status_is_escalated_for_unknown_incident():
-    """run_incident() must report "escalated" for an escalate decision,
-    without attempting any remediation or verification."""
+def test_run_incident_status_is_no_incident_for_healthy_service():
+    """Healthy telemetry must stop before investigation or remediation."""
 
     result = controller.run_incident()
 
-    assert result["decision"]["action"] == "escalate"
-    assert result["action_result"]["status"] == "escalated"
+    assert result["decision"] is None
+    assert result["action_result"] is None
     assert result["verification"] is None
-    assert result["status"] == "escalated"
+    assert result["attempts"] == []
+    assert result["status"] == "no_incident"
+    assert any(event["event_type"] == "no_incident" for event in result["timeline"])
 
 
 # ---------------------------------------------------------------------------
@@ -328,8 +330,12 @@ def test_run_incident_stops_after_max_attempts_without_looping_forever():
 
     assert result["status"] == "escalated"
     assert result["reason"] == "Maximum remediation attempts exhausted"
-    assert result["trace_events"][-1]["phase"] == "escalated"
-    assert "Human investigation required" in result["trace_events"][-1]["execution"]["message"]
+    escalation = next(
+        event for event in result["trace_events"]
+        if event["event_type"] == "incident_escalated"
+    )
+    assert escalation["phase"] == "escalated"
+    assert "Maximum remediation attempts" in escalation["message"]
 
 
 def test_verification_waits_between_samples_without_waiting_after_last_sample():
@@ -370,6 +376,7 @@ def test_run_incident_unsafe_action_stays_blocked_across_the_loop():
         "reason": "Forced unsafe decision for blocked-in-loop test",
         "confidence": 1.0,
     }
+    service.simulate_outage()
 
     with patch.object(
             controller,
